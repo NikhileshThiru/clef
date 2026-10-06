@@ -1,0 +1,209 @@
+/* Colors from the Omarchy "wp1" theme (~/.config/omarchy/themes/wp1/colors.toml). */
+:root {
+  --bg: #06070a;
+  --bg-dark: #030405;
+  --bg-light: #1f2023;
+  --fg: #9efdf7;
+  --fg-dim: #77beb9;
+  --fg-bright: #b6fef9;
+  --muted: #5b5d63;
+  --accent: #2b8cad;
+  --cyan: #41f4ff;
+  --cyan-bright: #00ffff;
+  --sky: #58cdff;
+  --alert: #ff4f6d;
+
+  /* Source colors, shared by every panel and the core's particle streams. */
+  --src-mail: #9efdf7;
+  --src-news: #41f4ff;
+  --src-jobs: #7cffb2;
+  --src-system: #ffb86b;
+
+  --cat-ai: #41f4ff;
+  --cat-stocks: #7eaef0;
+  --cat-startups: #7cffb2;
+
+  --font: "JetBrainsMono Nerd Font", "JetBrains Mono", ui-monospace, monospace;
+  --gap: 6px;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  font: 12px/1.35 var(--font);
+  overflow: hidden;
+}
+
+a { color: inherit; text-decoration: none; }
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 14px var(--gap);
+  height: 100vh;
+  padding: 10px var(--gap) var(--gap);  /* top room for the titles cut into the border */
+}
+
+/* btop-style box: thin border with the title cut into the top edge. */
+.box {
+  position: relative;
+  min-height: 0;
+  border: 1px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+}
+
+.box > header {
+  position: absolute;
+  top: -0.75em;
+  left: 10px;
+  right: 10px;
+  display: flex;
+  justify-content: space-between;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.box > header span {
+  background: var(--bg);
+  padding: 0 6px;
+}
+
+.box .title {
+  color: var(--cyan);
+  font-weight: bold;
+  letter-spacing: 0.08em;
+}
+
+.box .meta { color: var(--fg-dim); }
+
+.box > .body {
+  flex: 1;
+  min-height: 0;
+  padding: 12px 10px 8px;
+  overflow: hidden;
+}
+
+.empty {
+  color: var(--muted);
+  display: grid;
+  place-items: center;
+  height: 100%;
+  text-align: center;
+}
+
+/* ---------------------------------------------------------------- lists */
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.row {
+  display: block;
+  padding: 3px 6px 4px;
+  border-left: 2px solid transparent;
+  border-radius: 2px;
+}
+
+.row:hover { background: var(--bg-light); }
+
+.row .headline {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  color: var(--fg);
+}
+
+.row .sub {
+  display: flex;
+  gap: 8px;
+  color: var(--fg-dim);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.row .sub .origin { overflow: hidden; text-overflow: ellipsis; }
+.row .sub .grow { flex: 1; }
+
+.row.hot {
+  border-left-color: var(--cyan-bright);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--cyan) 14%, transparent), transparent 70%);
+}
+
+.row.hot .headline { color: var(--fg-bright); font-weight: bold; }
+
+.row.fresh { animation: fresh 2.5s ease-out; }
+
+@keyframes fresh {
+  from { background: color-mix(in srgb, var(--cyan) 30%, transparent); }
+}
+
+.tag {
+  font-weight: bold;
+  letter-spacing: 0.05em;
+}
+
+.tag.ai { color: var(--cat-ai); }
+.tag.stocks { color: var(--cat-stocks); }
+.tag.startups { color: var(--cat-startups); }
+
+.badge {
+  color: var(--bg);
+  background: var(--cyan-bright);
+  padding: 0 4px;
+  border-radius: 2px;
+  font-weight: bold;
+  font-size: 10px;
+  margin-right: 6px;
+  vertical-align: 1px;
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes pulse { 50% { opacity: 0.55; } }
+
+.meter { color: var(--accent); letter-spacing: -1px; }
+.meter b { color: var(--cyan); font-weight: normal; }
+
+/* ---------------------------------------------------------------- core (placeholder until the visual lands) */
+
+.core > .body { padding: 0; position: relative; }
+
+.ticker {
+  position: absolute;
+  inset: 12px 10px 8px;
+  display: flex;
+  flex-direction: column-reverse;
+  overflow: hidden;
+  font-size: 11px;
+}
+
+.ticker div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---------------------------------------------------------------- vitals */
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px 14px;
+}
+
+.stat .k { color: var(--fg-dim); font-size: 11px; }
+.stat .v { color: var(--cyan); font-size: 20px; font-weight: bold; }
+.stat .v small { font-size: 11px; color: var(--fg-dim); font-weight: normal; }
+
+.status-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--alert); margin-right: 5px; }
+.status-dot.up { background: var(--cyan-bright); box-shadow: 0 0 6px var(--cyan); }

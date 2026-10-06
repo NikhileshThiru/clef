@@ -1,0 +1,14 @@
+[Unit]
+Description=Clef dashboard backend (ingest, decision queue, web UI on :8077)
+Wants=clef-llama.service
+After=clef-llama.service network-online.target
+
+[Service]
+WorkingDirectory=%h/projects/clef
+ExecStart=%h/projects/clef/.venv/bin/python -m clefd
+Environment=PYTHONUNBUFFERED=1
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target

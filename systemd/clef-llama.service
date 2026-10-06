@@ -1,0 +1,16 @@
+[Unit]
+Description=Clef-flash decision model (llama-server, SystemOne API on :8090)
+
+[Service]
+# Everything on the GPU except the vocab head, which the decision head never reads.
+# ub 2048 caps a single request at 2048 tokens and leaves ~700 MiB VRAM headroom.
+ExecStart=%h/.local/src/llama.cpp/build/bin/llama-server \
+  -m %h/.local/share/clef/models/Clef-Flash-Q4_K_M.gguf \
+  --host 127.0.0.1 --port 8090 \
+  -ngl 99 -c 4096 -b 2048 -ub 2048 \
+  -ot "^output\\.weight$=CPU" --load-mode none
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

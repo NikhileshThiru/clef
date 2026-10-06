@@ -1,0 +1,20 @@
+[project]
+name = "clefd"
+version = "0.1.0"
+description = "Clef homelab decision dashboard backend"
+requires-python = ">=3.13"
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn>=0.32",
+  "websockets>=13",
+  "httpx>=0.27",
+  "feedparser>=6.0",
+  "rapidfuzz>=3.10",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["clefd"]

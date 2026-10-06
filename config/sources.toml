@@ -1,0 +1,94 @@
+# News sources and topics. Edit freely; clefd reloads this file when it changes.
+#
+# Fewer, better sources beat many: everything is deduped by URL and by
+# near-identical headline, and Clef throws out what is irrelevant.
+
+[profile]
+# Given to Clef with every news item so it knows who it is filtering for.
+reader = "CS sophomore at Georgia Tech. Follows AI labs, models and research; startups and funding; the US stock market and big tech stocks."
+
+[news]
+max_age_hours = 24     # ignore anything published longer ago than this
+min_relevance = 1.5    # 0-4 scale; items below this are hidden
+keep_hours = 48        # how long items stay in the panel
+
+[hackernews]
+enabled = true
+poll_seconds = 30
+top_n = 60             # watch the top N front-page stories
+
+# Plain RSS/Atom feeds. poll_seconds defaults to 120.
+[[rss]]
+name = "TechCrunch"
+url = "https://techcrunch.com/feed/"
+
+[[rss]]
+name = "The Verge AI"
+url = "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml"
+
+[[rss]]
+name = "VentureBeat AI"
+url = "https://feeds.feedburner.com/venturebeat/SZYF"
+
+[[rss]]
+name = "CNBC Markets"
+url = "https://www.cnbc.com/id/10000664/device/rss/rss.html"
+
+[[rss]]
+name = "CNBC Tech"
+url = "https://www.cnbc.com/id/19854910/device/rss/rss.html"
+
+[[rss]]
+name = "WSJ Markets"
+url = "https://feeds.a.dj.com/rss/RSSMarketsMain.xml"
+
+[[rss]]
+name = "MarketWatch"
+url = "https://www.marketwatch.com/rss/topstories"
+
+[[rss]]
+name = "OpenAI"
+url = "https://openai.com/news/rss.xml"
+poll_seconds = 300
+
+[[rss]]
+name = "Google DeepMind"
+url = "https://deepmind.google/blog/rss.xml"
+poll_seconds = 300
+
+[[rss]]
+name = "Hugging Face"
+url = "https://huggingface.co/blog/feed.xml"
+poll_seconds = 300
+
+[[rss]]
+name = "Cloudflare"
+url = "https://blog.cloudflare.com/rss/"
+poll_seconds = 300
+
+[[rss]]
+name = "NVIDIA"
+url = "https://blogs.nvidia.com/feed/"
+poll_seconds = 300
+
+# Google News search: one query covers thousands of outlets.
+# Syntax: OR, "exact phrase", when:1d (last day). poll_seconds defaults to 120.
+[[google_news]]
+query = 'Anthropic OR OpenAI OR "Google DeepMind" OR "Meta AI" OR xAI when:1d'
+
+[[google_news]]
+query = '"AI startup" raises OR funding OR "Series A" OR "Series B" when:1d'
+
+[[google_news]]
+query = '"Y Combinator" OR "YC-backed" when:1d'
+
+[[google_news]]
+query = '"stock market" OR "S&P 500" OR Nasdaq when:1d'
+
+[[google_news]]
+query = 'NVDA OR AAPL OR MSFT OR GOOGL OR META OR AMZN OR TSLA stock when:1d'
+
+# Finnhub market news. Needs a free key in .env as FINNHUB_API_KEY; skipped otherwise.
+[finnhub]
+enabled = true
+poll_seconds = 120
