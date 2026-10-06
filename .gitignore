@@ -1,0 +1,11 @@
+.env
+*.db
+*.db-*
+data/
+secrets/
+token.json
+credentials.json
+__pycache__/
+.venv/
+node_modules/
+*.log
