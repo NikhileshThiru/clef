@@ -9,3 +9,4 @@ __pycache__/
 .venv/
 node_modules/
 *.log
+PLAN.md

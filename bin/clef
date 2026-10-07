@@ -1,5 +1,5 @@
 #!/bin/bash
-# Clef dashboard: one fullscreen kiosk window on workspace 10 (Super+0).
+# Clef dashboard: one Chromium app window, tiled like any other (same look as jarvis).
 #
 #   clef            open the dashboard (starts the backend services if they're down)
 #   clef status     services, model, queue, alerts
@@ -7,17 +7,29 @@
 #   clef logs       follow the backend logs
 #
 # The window is spawned by Hyprland itself (hl.dsp.exec_cmd), not as a child of
-# this shell, and pinned in place by ~/.config/hypr/clef.lua.
+# this shell, so Chromium's logs never reach the launching terminal.
 
 URL="http://localhost:8077"
 KIOSK_URL="http://clef.localhost:8077/?kiosk=1" # *.localhost is loopback in Chromium; the unique host names the window
 CLASS_RE='^chrome-clef\.localhost__'
-WORKSPACE=10
 PROFILE="$HOME/.local/share/clef/chromium" # separate profile: no extensions, tabs or sync from your main browser
 SERVICES=(clef-llama clefd)
 
 dispatch() {
   hyprctl dispatch "$1" >/dev/null
+}
+
+window_addresses() {
+  hyprctl clients -j | jq -c '[.[].address]'
+}
+
+# Wait up to $2 seconds for a window not in $1 to appear.
+wait_for_new_window() {
+  local before=$1 tries=$((${2:-5} * 10))
+  while ((tries-- > 0)); do
+    (($(hyprctl clients -j | jq --argjson old "$before" '[.[].address] - $old | length') > 0)) && break
+    sleep 0.1
+  done
 }
 
 # Over SSH there's no Hyprland env; attach to the running session so `clef` works from the Mac too.
@@ -45,14 +57,19 @@ ensure_services() {
 open_dashboard() {
   ensure_services
 
+  # Already open somewhere: just go to it.
   window=$(hyprctl clients -j | jq -r --arg re "$CLASS_RE" 'first(.[] | select(.class | test($re)) | .address) // empty')
   if [[ -n $window ]]; then
-    # Already open: bring it home and show it.
-    dispatch "hl.dsp.window.move({ window = \"address:$window\", workspace = \"$WORKSPACE\", follow = false })"
-  else
-    dispatch "hl.dsp.exec_cmd([[uwsm-app -- chromium --app=$KIOSK_URL --user-data-dir=$PROFILE --no-first-run --no-default-browser-check --disable-session-crashed-bubble --hide-crash-restore-bubble --noerrdialogs --disable-features=Translate]])"
+    dispatch "hl.dsp.focus({ window = \"address:$window\" })"
+    return
   fi
-  dispatch "hl.dsp.focus({ workspace = \"$WORKSPACE\" })"
+
+  # Like jarvis: take the current workspace only if it's empty.
+  (($(hyprctl activeworkspace -j | jq .windows) > 0)) && dispatch 'hl.dsp.focus({ workspace = "empty" })'
+
+  before=$(window_addresses)
+  dispatch "hl.dsp.exec_cmd([[uwsm-app -- chromium --app=$KIOSK_URL --user-data-dir=$PROFILE --no-first-run --no-default-browser-check --disable-session-crashed-bubble --hide-crash-restore-bubble --noerrdialogs --disable-features=Translate]])"
+  wait_for_new_window "$before" 15
 }
 
 status() {
@@ -73,7 +90,23 @@ status() {
 }
 
 case ${1:-open} in
-open) open_dashboard ;;
+open)
+  # Typed in a terminal: hand off to a detached copy and close this terminal so it doesn't take a tile.
+  if [[ -t 0 && -z $CLEF_DETACHED && -n $WAYLAND_DISPLAY ]]; then
+    terminal=$(hyprctl activewindow -j | jq -r 'select(.class | test("ghostty|alacritty|kitty|foot"; "i")) | .address')
+    CLEF_DETACHED=1 CLEF_TERMINAL=$terminal setsid -f "$0" open </dev/null >/dev/null 2>&1
+    [[ -n $terminal ]] && dispatch "hl.dsp.window.close({ window = \"address:$terminal\" })"
+    exit 0
+  fi
+  # Let the launching terminal finish closing.
+  if [[ -n $CLEF_TERMINAL ]]; then
+    for _ in {1..20}; do
+      hyprctl clients -j | jq -e --arg a "$CLEF_TERMINAL" 'any(.address == $a)' >/dev/null || break
+      sleep 0.1
+    done
+  fi
+  open_dashboard
+  ;;
 status) status ;;
 restart) systemctl --user restart "${SERVICES[@]}" && echo "restarted ${SERVICES[*]}" ;;
 logs) journalctl --user -u clefd -u clef-llama -f ;;

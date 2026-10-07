@@ -15,16 +15,20 @@ from .decider import decider
 from .ingest import jobs, mail, news, system
 
 
+# CLEF_DEMO=1: serve whatever is already in the database and poll nothing (used for README screenshots).
+DEMO = os.environ.get("CLEF_DEMO") == "1"
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    decider.restore_pending()
-    tasks = [asyncio.create_task(c, name=c.__qualname__) for c in (
-        decider.run(), decider.health_loop(), decider.stats_loop(),
-        news.run(), news.prune_loop(),
-        system.sample_loop(), system.check_loop(),
-        mail.run(), mail.prune_loop(), mail.reminder_loop(),
-        *jobs.run_tasks(),
-    )]
+    loops = [decider.health_loop()]
+    if DEMO:
+        jobs.watch.last_sweep = {"hot": time.time() - 70, "cold": time.time() - 400}
+    else:
+        decider.restore_pending()
+        loops += [decider.run(), decider.stats_loop(), news.run(), news.prune_loop(), system.sample_loop(), system.check_loop(),
+                  mail.run(), mail.prune_loop(), mail.reminder_loop(), *jobs.run_tasks()]
+    tasks = [asyncio.create_task(c, name=c.__qualname__) for c in loops]
     for t in tasks:
         t.add_done_callback(_crash_on_task_death)
     yield

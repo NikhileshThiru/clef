@@ -19,7 +19,7 @@ roles = ["swe", "ai_ml", "data", "infra", "quant"]
 # Terms that count. Options: spring_2027, summer_2027, fall_2027, year_2028_or_later, earlier, unclear
 terms = ["spring_2027", "summer_2027", "fall_2027", "year_2028_or_later", "unclear"]
 min_us = 0.5            # P(the role can be done in the US)
-min_internship = 0.5    # P(it's an internship or co-op, not full-time / new grad)
+min_internship = 0.75   # P(a real internship/co-op: not full-time, new grad, or an on-campus student job)
 min_bachelors = 0.4     # P(open to students pursuing a bachelor's; rejects PhD/master's-only and new grad)
 
 [freshness]

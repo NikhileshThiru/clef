@@ -235,7 +235,7 @@ async def reminder_loop() -> None:
         login_at = LOGIN_FILE.read_text().strip() if LOGIN_FILE.exists() else None
         if age is not None and age >= LOGIN_DAYS - 1 and reminded != login_at:
             await ntfy("Clef: Gmail login expires tomorrow",
-                       "Re-run: ssh -L 8765:localhost:8765 nikhilesh@omarchy, then "
+                       "Re-run: ssh -L 8765:localhost:8765 <user>@<laptop>, then "
                        "cd ~/projects/clef && uv run python -m clefd.gmail_auth", tags=["email"], priority=3)
             db.kv_set("gmail_reminded_for", login_at)
         await asyncio.sleep(3600)

@@ -1,7 +1,7 @@
 """One-time Gmail login. Run: uv run python -m clefd.gmail_auth
 
 Opens a local callback on port 8765. From the Mac, first run
-    ssh -L 8765:localhost:8765 nikhilesh@<laptop>
+    ssh -L 8765:localhost:8765 <user>@<laptop>
 so the browser's redirect back to localhost:8765 reaches the laptop.
 """
 import os

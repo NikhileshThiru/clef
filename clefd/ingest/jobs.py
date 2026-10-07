@@ -432,8 +432,9 @@ TERMS = {
     "unclear": "the posting doesn't say when",
 }
 QUESTIONS = {
-    "internship": {"type": "noul", "instructions": "Is this an internship or co-op for current students "
-                                                   "(not a full-time, new grad or contract role)?"},
+    "internship": {"type": "noul", "instructions": "Is this an internship or co-op program for current students "
+                                                   "(not a full-time, new grad or contract role, and not a part-time "
+                                                   "on-campus student-worker job at a university)?"},
     "role": {"type": "choice", "instructions": "What kind of role is this?", "criteria": ROLES},
     "term": {"type": "choice", "instructions": "When does this internship take place?", "criteria": TERMS},
     "us": {"type": "noul", "instructions": "Can this role be done in the United States (a US location or US remote)?"},
@@ -471,7 +472,7 @@ def interpret(item: dict, a: dict) -> dict:
     cfg = config.jobs.get().get("match", {})
     role, term = a["role"]["choice"], a["term"]["choice"]
     checks = {
-        "internship": a["internship"]["noul"] >= cfg.get("min_internship", 0.5),
+        "internship": a["internship"]["noul"] >= cfg.get("min_internship", 0.75),
         "role": role in cfg.get("roles", ["swe", "ai_ml", "data", "infra", "quant"]),
         "term": term in cfg.get("terms", list(TERMS)),
         "us": a["us"]["noul"] >= cfg.get("min_us", 0.5),
