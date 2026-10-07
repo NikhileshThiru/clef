@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Clef Jobs</title>
+  <link rel="icon" href="/static/favicon.svg">
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    html, body { overflow: auto; font-size: 14px; }
+    main { max-width: 900px; margin: 0 auto; padding: 24px 16px 48px; }
+    h1 { font-size: 15px; color: var(--cyan); letter-spacing: 0.2em; margin: 0 0 4px; }
+    .sub { color: var(--fg-dim); font-size: 12px; margin-bottom: 20px; }
+    h2 { font-size: 11px; color: var(--accent); letter-spacing: 0.15em; text-transform: uppercase; margin: 22px 0 6px; }
+    .job { display: grid; grid-template-columns: 1fr auto; gap: 2px 16px; padding: 8px 10px; border-left: 2px solid transparent; border-radius: 3px; }
+    .job:hover { background: var(--bg-light); }
+    .job.new { border-left-color: var(--src-jobs); background: color-mix(in srgb, var(--src-jobs) 8%, transparent); }
+    .job .what { color: var(--fg-bright); }
+    .job .what b { color: var(--src-jobs); }
+    .job .when { color: var(--fg-dim); font-size: 12px; text-align: right; }
+    .job .info { color: var(--fg-dim); font-size: 12px; grid-column: 1 / -1; }
+    .empty { height: auto; padding: 40px 0; }
+    @media (max-width: 600px) { .job { grid-template-columns: 1fr; } .job .when { text-align: left; } }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>CLEF · JOBS</h1>
+    <div class="sub" id="sub">loading…</div>
+    <div id="list"></div>
+  </main>
+  <script type="module">
+    import { ago, esc, etDateTime } from "/static/util.js";
+    const day = (ts) => new Date(ts * 1000).toLocaleDateString("en-US", { timeZone: "America/New_York", weekday: "long", month: "short", day: "numeric" });
+
+    async function refresh() {
+      const { matches, status } = await fetch("/api/jobs?hours=168").then((r) => r.json());
+      const n = (status.boards.hot || 0) + (status.boards.cold || 0);
+      document.getElementById("sub").textContent =
+        `${matches.length} matches in the last 7 days · watching ${n.toLocaleString()} job boards + Simplify · refreshes every 20 s`;
+      if (!matches.length) {
+        document.getElementById("list").innerHTML = `<div class="empty">No fresh matches yet. New ones appear here and on your phone within minutes of posting.</div>`;
+        return;
+      }
+      let html = "", current = "";
+      for (const j of matches) {
+        const d = day(j.found);
+        if (d !== current) { html += `<h2>${d}</h2>`; current = d; }
+        const isNew = Date.now() / 1000 - j.found < 3600;
+        html += `<a class="job${isNew ? " new" : ""}" href="${esc(j.url)}" target="_blank" rel="noopener">
+          <span class="what"><b>${esc(j.company)}</b> · ${esc(j.title)}</span>
+          <span class="when" title="${etDateTime(j.found)}">${ago(j.found)} ago</span>
+          <span class="info">${[j.term, j.location, j.via].filter(Boolean).map(esc).join(" · ")}</span></a>`;
+      }
+      document.getElementById("list").innerHTML = html;
+    }
+    refresh();
+    setInterval(refresh, 20_000);
+  </script>
+</body>
+</html>

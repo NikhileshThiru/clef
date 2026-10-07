@@ -7,6 +7,7 @@ and broadcast so the UI can react to the real decision as it happens.
 """
 import asyncio
 import itertools
+import re
 import time
 import traceback
 from collections import deque
@@ -18,8 +19,12 @@ import httpx
 from . import bus, config, db
 
 PRIORITY = {"mail": 0, "jobs": 1, "system": 2, "news": 3}
-# ~4 chars per token; leaves room for the questions inside the 2048-token batch.
+# Longest any single string in a state may be on the first try. A request must fit
+# llama-server's ubatch (2048 tokens); if it doesn't, the error says by how much.
 MAX_STATE_CHARS = 5000
+UBATCH = 2048
+TOO_LARGE = re.compile(r"input \((\d+) tokens\) is too large")
+MAX_FAILURES = 3  # per item, then it is marked error so it can't block the queue
 
 
 @dataclass
@@ -35,6 +40,20 @@ SPECS: dict[str, Spec] = {}
 
 def register(source: str, spec: Spec) -> None:
     SPECS[source] = spec
+
+
+class TooLarge(Exception):
+    pass
+
+
+def longest(value) -> int:
+    if isinstance(value, str):
+        return len(value)
+    if isinstance(value, dict):
+        return max((longest(v) for v in value.values()), default=0)
+    if isinstance(value, list):
+        return max((longest(v) for v in value), default=0)
+    return 0
 
 
 def truncate(value, limit: int):
@@ -54,7 +73,9 @@ class Decider:
         self.recent: deque = deque(maxlen=2000)  # (ts, latency_ms, tokens, source)
         self.up = False
         self.last: dict | None = None
-        self.client = httpx.AsyncClient(base_url=config.LLAMA_URL, timeout=30)
+        self.failures: dict[str, int] = {}
+        # Generous: on battery the GPU is power-capped and one decision can take ~10 s.
+        self.client = httpx.AsyncClient(base_url=config.LLAMA_URL, timeout=120)
 
     def enqueue(self, item_id: str, source: str, published: float | None) -> None:
         if item_id in self.queued:
@@ -68,13 +89,28 @@ class Decider:
 
     async def _ask(self, state, questions: dict) -> dict:
         limit = MAX_STATE_CHARS
-        while True:
+        for _ in range(4):
             r = await self.client.post("/v1/systemone", json={"state": truncate(state, limit), "questions": questions})
-            if r.status_code == 500 and "too large" in r.text and limit > 250:
-                limit //= 2
-                continue
-            r.raise_for_status()
-            return r.json()
+            m = TOO_LARGE.search(r.text) if r.status_code == 500 else None
+            if not m:
+                r.raise_for_status()
+                return r.json()
+            # Shrink the longest strings by exactly the overshoot, plus a margin.
+            limit = int(min(limit, longest(state)) * UBATCH / int(m.group(1)) * 0.85)
+            if limit < 100:
+                break
+        raise TooLarge(r.text[:200])
+
+    def _fail(self, item_id: str, why: str, entry: tuple) -> None:
+        """Count a failure; requeue until MAX_FAILURES, then give up on this item."""
+        n = self.failures[item_id] = self.failures.get(item_id, 0) + 1
+        if n >= MAX_FAILURES:
+            print(f"[decider] giving up on {item_id} after {n} failures: {why}", flush=True)
+            db.mark_error(item_id)
+            self.queued.discard(item_id)
+            self.failures.pop(item_id, None)
+        else:
+            self.queue.put_nowait(entry)
 
     async def run(self) -> None:
         while True:
@@ -88,13 +124,25 @@ class Decider:
             try:
                 questions = spec.questions(item) if callable(spec.questions) else spec.questions
                 resp = await self._ask(spec.state(item), questions)
-            except (httpx.TransportError, httpx.HTTPStatusError) as e:
-                if isinstance(e, httpx.HTTPStatusError) and e.response.status_code < 500:
+            except TooLarge as e:
+                print(f"[decider] {item_id} doesn't fit even truncated: {e}", flush=True)
+                db.mark_error(item_id)
+                self.queued.discard(item_id)
+                continue
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code < 500:
                     print(f"[decider] {item_id}: {e.response.status_code} {e.response.text[:200]}", flush=True)
                     db.mark_error(item_id)
                     self.queued.discard(item_id)
-                    continue
-                # Clef is down or restarting: put the item back and wait.
+                else:
+                    self._fail(item_id, f"{e.response.status_code} {e.response.text[:200]}", (prio, neg_pub, seq, item_id))
+                continue
+            except httpx.TimeoutException as e:
+                # The server is up but this item hung or the GPU is very slow; don't retry it forever.
+                self._fail(item_id, repr(e), (prio, neg_pub, seq, item_id))
+                continue
+            except httpx.TransportError as e:
+                # Clef is down or restarting: put the item back and wait (not the item's fault).
                 if self.up:
                     self.up = False
                     print(f"[decider] llama-server unavailable: {e!r}", flush=True)
@@ -104,6 +152,7 @@ class Decider:
             latency = (time.perf_counter() - t0) * 1000
             self.up = True
             self.queued.discard(item_id)
+            self.failures.pop(item_id, None)
 
             item["questions"] = questions
             try:

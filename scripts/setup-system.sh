@@ -18,12 +18,10 @@ IdleAction=ignore
 CONF
 systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate.target
 
-echo "==> battery: charge to 80%, resume below 70% (persists via tmpfiles)"
-install -Dm644 /dev/stdin /etc/tmpfiles.d/clef-battery.conf <<'CONF'
-w /sys/class/power_supply/BAT0/charge_control_start_threshold - - - - 70
-w /sys/class/power_supply/BAT0/charge_control_end_threshold - - - - 80
-CONF
-systemd-tmpfiles --create /etc/tmpfiles.d/clef-battery.conf
+echo "==> battery: no charge limit (stock 95/100); remove any limit an older version of this script set"
+rm -f /etc/tmpfiles.d/clef-battery.conf
+echo 100 > /sys/class/power_supply/BAT0/charge_control_end_threshold
+echo 95 > /sys/class/power_supply/BAT0/charge_control_start_threshold
 
 echo "==> user services start at boot without a login"
 loginctl enable-linger "$user"

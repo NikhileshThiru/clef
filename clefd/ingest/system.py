@@ -15,6 +15,7 @@ from collections import deque
 from pathlib import Path
 
 from .. import bus, db
+from ..notify import ntfy
 from ..decider import Spec, decider, register
 
 try:
@@ -129,6 +130,8 @@ def sample() -> dict:
     s["uptime"] = float(open("/proc/uptime").read().split()[0])
 
     s["battery"] = int(_read(_bat / "capacity", "0"))
+    full, design = int(_read(_bat / "charge_full", "0")), int(_read(_bat / "charge_full_design", "0"))
+    s["battery_health"] = round(100 * full / design) if design else None
     s["battery_status"] = _read(_bat / "status", "Unknown")
     s["ac"] = _read(_ac) == "1"
 
@@ -299,6 +302,8 @@ def _raise(subsystem: str, message: str, by: str) -> None:
     bus.publish({"t": "alert", "alert": health.alert})
     if new:
         print(f"[system] ALERT {subsystem}: {message} ({by})", flush=True)
+        asyncio.get_running_loop().create_task(
+            ntfy(f"Clef: {subsystem.replace('_', ' ')} alert", message, tags=["warning"], priority=4))
         log = db.kv_get("alerts", [])[-49:]
         db.kv_set("alerts", log + [health.alert])
 
@@ -359,6 +364,9 @@ def observations(now: dict) -> list[str]:
         line += ". STUCK"
     obs.append(line + ".")
 
+    health_pct = now.get("battery_health")
+    if health_pct is not None:
+        obs.append(f"Battery health reading: {health_pct}% (this laptop's battery gauge is unreliable; ignore it).")
     if now.get("ac"):
         obs.append(f"Power: plugged in, battery {now['battery']}%.")
     else:
@@ -380,7 +388,6 @@ async def sample_loop() -> None:
             health.llama_down_since = None
         elif health.llama_down_since is None:
             health.llama_down_since = time.time()
-        bus.publish({"t": "vitals", **s})
         await asyncio.sleep(1)
 
 

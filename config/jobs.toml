@@ -1,0 +1,39 @@
+# Internship watcher. Reloads on save.
+#
+# Sources, fastest first:
+#   1. Company job boards polled directly (Greenhouse, Lever, Ashby, SmartRecruiters, Workday).
+#      A posting shows up there the moment it's published: minutes of latency.
+#      The board list is mined daily from Simplify's listings (every company that has posted
+#      internships), plus anything you add under [extra_boards].
+#   2. SimplifyJobs/Summer2027-Internships listings.json (refreshes every ~30 min), as a catch-all
+#      for companies on custom career sites.
+# A posting only alerts if it is new since the last check AND fresh by its own timestamp.
+
+[profile]
+# Given to Clef with every posting.
+candidate = "CS student at Georgia Tech (B.S., graduating May 2028), currently a sophomore. Builds AI systems, backend and full-stack products, and developer tooling; uses Python, TypeScript, PyTorch, pandas, LLM APIs."
+
+[match]
+# Roles that count. Options: swe, ai_ml, data, infra, quant, frontend, mobile, hardware, non_engineering
+roles = ["swe", "ai_ml", "data", "infra", "quant"]
+# Terms that count. Options: spring_2027, summer_2027, fall_2027, year_2028_or_later, earlier, unclear
+terms = ["spring_2027", "summer_2027", "fall_2027", "year_2028_or_later", "unclear"]
+min_us = 0.5            # P(the role can be done in the US)
+min_internship = 0.5    # P(it's an internship or co-op, not full-time / new grad)
+min_bachelors = 0.4     # P(open to students pursuing a bachelor's; rejects PhD/master's-only and new grad)
+
+[freshness]
+board_max_age_hours = 24      # boards with a posting timestamp: ignore anything older
+simplify_max_age_hours = 6    # widen to 24 if it feels too quiet
+
+[polling]
+hot_cycle_seconds = 180       # boards that posted an internship in the last 120 days
+cold_cycle_seconds = 900      # everything else
+simplify_poll_seconds = 300
+
+# Boards to watch even if Simplify has never listed them. Use the name from the board URL:
+#   boards.greenhouse.io/<name>, jobs.lever.co/<name>, jobs.ashbyhq.com/<name>
+[extra_boards]
+greenhouse = []
+lever = []
+ashby = []

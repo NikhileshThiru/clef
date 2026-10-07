@@ -5,10 +5,11 @@ Opens a local callback on port 8765. From the Mac, first run
 so the browser's redirect back to localhost:8765 reaches the laptop.
 """
 import os
+import time
 
 from google_auth_oauthlib.flow import InstalledAppFlow
 
-from .ingest.mail import CLIENT_FILE, SCOPES, TOKEN_FILE
+from .ingest.mail import CLIENT_FILE, LOGIN_FILE, SCOPES, TOKEN_FILE
 
 
 def main() -> None:
@@ -23,6 +24,7 @@ def main() -> None:
     )
     TOKEN_FILE.write_text(creds.to_json())
     os.chmod(TOKEN_FILE, 0o600)
+    LOGIN_FILE.write_text(str(time.time()))
     print(f"\nSaved {TOKEN_FILE}. clefd picks it up within 30 s, no restart needed.")
 
 

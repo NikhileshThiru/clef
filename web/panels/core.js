@@ -414,7 +414,8 @@ hud.innerHTML = `
   <div class="hud-corner tl"><div class="hud-title">CLEF-FLASH</div><div id="hud-status">Q4_K_M · RTX 3060</div></div>
   <div class="hud-corner tr"><div><span id="hud-dpm">0</span> <small>DEC/MIN</small></div><div><span id="hud-ms">–</span> <small>MS</small></div><div><span id="hud-q">0</span> <small>QUEUE</small></div></div>
   <div class="hud-corner bl"><div id="hud-path" class="hud-path">AWAITING SIGNAL</div><div id="hud-title" class="hud-sub"></div></div>
-  <div class="hud-corner br" id="hud-log"></div>`;
+  <div class="hud-corner br" id="hud-log"></div>
+  <div class="hud-alert" id="hud-alert"></div>`;
 body.append(hud);
 const $ = (id) => hud.querySelector(id);
 
@@ -459,7 +460,15 @@ function onDecision(ev) {
   logLine(ev, col);
 }
 
+function showAlert(alert) {
+  const el = $("#hud-alert");
+  el.classList.toggle("on", !!alert);
+  if (alert) el.innerHTML = `<b>⚠ ${alert.subsystem.replace("_", " ").toUpperCase()}</b> ${alert.message.replace(/[<>&]/g, "")}`;
+}
+
 export function onEvent(ev) {
+  if (ev.t === "alert") showAlert(ev.alert);
+  if (ev.t === "hello") showAlert(ev.alert);
   if (ev.t === "ingest") {
     pending.push({ source: ev.source, count: ev.dup ? 3 : 7, dim: !!ev.dup });
     if (pending.length > 40) pending.splice(0, pending.length - 40);
@@ -494,7 +503,7 @@ if (new URLSearchParams(location.search).has("dev")) window.clefCore = { onEvent
 function resize() {
   const { width, height } = body.getBoundingClientRect();
   if (!width || !height) return;
-  const pr = Math.min(devicePixelRatio, 1.5);
+  const pr = Math.min(devicePixelRatio, 1.25);
   renderer.setPixelRatio(pr);
   renderer.setSize(width, height, false);
   composer.setPixelRatio(pr);
@@ -514,8 +523,21 @@ resize();
 
 const clock = new THREE.Clock();
 let launchBudget = 0;
+// 30 fps while something is happening, 15 fps while the core only breathes.
+// Rendering is the kiosk's main CPU/iGPU cost, so idle frames are worth skipping.
+const ACTIVE_MS = 1000 / 30;
+const IDLE_MS = 1000 / 15;
+let lastFrame = 0;
 
-function frame() {
+function busy() {
+  return U.uFlare.value > 0.02 || U.uAbsorb.value > 0.02 || pending.length > 0 ||
+    P.alive.some((a) => a) || ripples.some((m) => m.visible);
+}
+
+function frame(now) {
+  requestAnimationFrame(frame);
+  if (now - lastFrame < (busy() ? ACTIVE_MS : IDLE_MS) - 2) return;
+  lastFrame = now;
   const dt = Math.min(clock.getDelta(), 0.1);
   const t = (U.uTime.value += dt);
 
@@ -555,6 +577,5 @@ function frame() {
   updateStreams(dt);
 
   composer.render(dt);
-  requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);

@@ -171,7 +171,8 @@ a { color: inherit; text-decoration: none; }
   font-size: 10px;
   margin-right: 6px;
   vertical-align: 1px;
-  animation: pulse 1.6s ease-in-out infinite;
+  /* Static glow: an infinite pulse here forced a full repaint every frame (~19% CPU in the kiosk). */
+  box-shadow: 0 0 8px color-mix(in srgb, var(--cyan-bright) 60%, transparent);
 }
 
 @keyframes pulse { 50% { opacity: 0.55; } }
@@ -231,74 +232,30 @@ a { color: inherit; text-decoration: none; }
 .hud-sub { margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: 0.04em; }
 .hud .br div { white-space: nowrap; }
 
-/* ---------------------------------------------------------------- vitals */
-
-.vitals { display: flex; flex-direction: column; height: 100%; gap: 8px; }
-.vitals .k { color: var(--fg-dim); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; }
-.vitals small { font-size: 10px; color: var(--fg-dim); font-weight: normal; }
-.vitals .dim { color: var(--muted); }
-
-.big-row { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: minmax(0, 1fr); gap: 14px; flex: 1; min-height: 0; }
-.big { position: relative; min-width: 0; min-height: 0; }
-.big-head { display: flex; justify-content: space-between; align-items: baseline; }
-.big-v b { font-size: 40px; line-height: 1; color: var(--cyan); text-shadow: 0 0 12px color-mix(in srgb, var(--cyan) 45%, transparent); }
-.big-v small { font-size: 14px; margin-left: 2px; }
-
-/* Absolutely positioned so the graph's own rows can never resize the box. */
-.braille {
-  position: absolute;
-  top: 46px;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  margin: 0;
-  font: 13px/13px var(--font);
-  letter-spacing: 0;
-  overflow: hidden;
-  white-space: pre;
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
-  border-bottom: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
-}
-.braille .lv0, .braille .lv1 { color: var(--accent); }
-.braille .lv2 { color: var(--cyan); opacity: 0.85; }
-.braille .lv3 { color: var(--cyan-bright); }
-.braille .hot { color: var(--alert); }
-
 .warn { color: var(--src-system) !important; }
-.crit { color: var(--alert) !important; text-shadow: 0 0 10px var(--alert) !important; }
 
-.small-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px 12px; }
-.stat-s { display: flex; flex-direction: column; min-width: 0; white-space: nowrap; overflow: hidden; }
-.stat-s .v { color: var(--fg-bright); font-size: 13px; }
-.stat-s .meter, .stat-s .mini { font-size: 8px; letter-spacing: 0; }
-.mini { color: var(--accent); letter-spacing: -0.5px; overflow: hidden; }
+/* ---------------------------------------------------------------- jobs */
 
-.clef-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 4px 0;
-  border-top: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
-  white-space: nowrap;
-}
-.clef-row b { color: var(--cyan); font-weight: normal; font-size: 13px; }
-.clef-row .grow { flex: 1; text-align: right; font-size: 11px; }
+.job-row .job-top { display: flex; gap: 8px; align-items: baseline; white-space: nowrap; overflow: hidden; }
+.job-row .company { color: var(--fg-bright); font-weight: bold; flex-shrink: 0; max-width: 40%; overflow: hidden; text-overflow: ellipsis; }
+.job-row .role-title { color: var(--fg); overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.job-row .grow { flex: 1; }
+.job-row .age { color: var(--fg-dim); font-size: 11px; flex-shrink: 0; }
+.job-row .job-sub { display: flex; gap: 8px; color: var(--fg-dim); font-size: 11px; white-space: nowrap; overflow: hidden; }
+.job-row .job-sub .loc { overflow: hidden; text-overflow: ellipsis; }
+.job-row .term { color: var(--src-jobs); font-weight: bold; flex-shrink: 0; }
+.job-row.new { border-left-color: var(--src-jobs); background: linear-gradient(90deg, color-mix(in srgb, var(--src-jobs) 14%, transparent), transparent 70%); }
+.job-row.new .company { color: var(--src-jobs); }
+.jobs-foot { color: var(--muted); font-size: 10px; letter-spacing: 0.05em; padding: 4px 6px 0; border-top: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.jobs-wrap { display: flex; flex-direction: column; height: 100%; }
+.jobs-wrap .list { flex: 1; min-height: 0; }
 
-.health { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.health .ok { color: var(--cyan); }
-.health.alert {
-  color: var(--fg-bright);
-  background: color-mix(in srgb, var(--alert) 18%, transparent);
-  border-left: 2px solid var(--alert);
-  padding: 2px 6px;
-  animation: pulse 1.6s ease-in-out infinite;
-}
-.health.alert b { color: var(--alert); }
-
-.status-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--alert); }
-.status-dot.up { background: var(--cyan-bright); box-shadow: 0 0 6px var(--cyan); }
+/* core HUD health alert */
+.hud-alert { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); max-width: 60%; padding: 3px 10px;
+  color: var(--fg-bright); background: color-mix(in srgb, var(--alert) 22%, transparent); border: 1px solid var(--alert);
+  font-size: 11px; letter-spacing: 0.06em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: none; }
+.hud-alert.on { display: block; }
+.hud-alert b { color: var(--alert); }
 
 /* ---------------------------------------------------------------- mail */
 

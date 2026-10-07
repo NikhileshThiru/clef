@@ -1,0 +1,84 @@
+#!/bin/bash
+# Clef dashboard: one fullscreen kiosk window on workspace 10 (Super+0).
+#
+#   clef            open the dashboard (starts the backend services if they're down)
+#   clef status     services, model, queue, alerts
+#   clef restart    restart the backend services
+#   clef logs       follow the backend logs
+#
+# The window is spawned by Hyprland itself (hl.dsp.exec_cmd), not as a child of
+# this shell, and pinned in place by ~/.config/hypr/clef.lua.
+
+URL="http://localhost:8077"
+KIOSK_URL="http://clef.localhost:8077/?kiosk=1" # *.localhost is loopback in Chromium; the unique host names the window
+CLASS_RE='^chrome-clef\.localhost__'
+WORKSPACE=10
+PROFILE="$HOME/.local/share/clef/chromium" # separate profile: no extensions, tabs or sync from your main browser
+SERVICES=(clef-llama clefd)
+
+dispatch() {
+  hyprctl dispatch "$1" >/dev/null
+}
+
+# Over SSH there's no Hyprland env; attach to the running session so `clef` works from the Mac too.
+if [[ -z $HYPRLAND_INSTANCE_SIGNATURE ]]; then
+  export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
+  HYPRLAND_INSTANCE_SIGNATURE=$(ls -t "$XDG_RUNTIME_DIR/hypr" 2>/dev/null | head -1)
+  export HYPRLAND_INSTANCE_SIGNATURE
+fi
+
+ensure_services() {
+  for svc in "${SERVICES[@]}"; do
+    if ! systemctl --user is-active --quiet "$svc"; then
+      echo "starting $svc"
+      systemctl --user start "$svc"
+    fi
+  done
+  # The page reconnects on its own, but give the backend a moment so it opens populated.
+  for _ in {1..30}; do
+    curl -sf "$URL/api/stats" >/dev/null && return
+    sleep 0.5
+  done
+  echo "clefd isn't answering yet; opening anyway (the page reconnects by itself)"
+}
+
+open_dashboard() {
+  ensure_services
+
+  window=$(hyprctl clients -j | jq -r --arg re "$CLASS_RE" 'first(.[] | select(.class | test($re)) | .address) // empty')
+  if [[ -n $window ]]; then
+    # Already open: bring it home and show it.
+    dispatch "hl.dsp.window.move({ window = \"address:$window\", workspace = \"$WORKSPACE\", follow = false })"
+  else
+    dispatch "hl.dsp.exec_cmd([[uwsm-app -- chromium --app=$KIOSK_URL --user-data-dir=$PROFILE --no-first-run --no-default-browser-check --disable-session-crashed-bubble --hide-crash-restore-bubble --noerrdialogs --disable-features=Translate]])"
+  fi
+  dispatch "hl.dsp.focus({ workspace = \"$WORKSPACE\" })"
+}
+
+status() {
+  for svc in "${SERVICES[@]}" clef-fans; do
+    scope=--user
+    [[ $svc == clef-fans ]] && scope=--system
+    printf "%-11s %s\n" "$svc" "$(systemctl $scope is-active "$svc")"
+  done
+  if stats=$(curl -sf "$URL/api/stats"); then
+    jq -r '"model      \(if .clef_up then "online" else "OFFLINE" end) · \(.dpm) decisions/min · \(.avg_ms // "–") ms avg · \(.queue) queued"' <<<"$stats"
+    curl -sf "$URL/api/vitals" | jq -r '"health     \(if .alert then "ALERT \(.alert.subsystem): \(.alert.message)" else "nominal" end)",
+      "gpu        \(.latest.gpu_util)% · \(.latest.gpu_temp)°C · VRAM \(.latest.vram_used*10|round/10)/\(.latest.vram_total) GB",
+      "battery    \(.latest.battery)% \(.latest.battery_status) · health \(.latest.battery_health)%"'
+    curl -sf "$URL/api/mail" | jq -r '"gmail      \(.status)\(if .email != "" then " (\(.email))" else "" end)"'
+  else
+    echo "clefd      not answering on $URL"
+  fi
+}
+
+case ${1:-open} in
+open) open_dashboard ;;
+status) status ;;
+restart) systemctl --user restart "${SERVICES[@]}" && echo "restarted ${SERVICES[*]}" ;;
+logs) journalctl --user -u clefd -u clef-llama -f ;;
+*)
+  sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'
+  exit 1
+  ;;
+esac

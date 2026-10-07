@@ -8,3 +8,5 @@ reader = "CS sophomore at Georgia Tech (graduating May 2028) looking for summer 
 poll_seconds = 60
 lookback_days = 3        # how far back the panel looks
 min_confidence = 0.0     # raise to hide low-confidence fyi items
+read_today_min = 0.6     # read_today calls less confident than this show under fyi
+code_stale_minutes = 15  # one-time codes / login links are hidden after this

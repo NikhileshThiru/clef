@@ -18,14 +18,17 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 
 from .. import bus, config, db
+from ..notify import ntfy
 from ..decider import Spec, decider, register
 
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 CLIENT_FILE = config.DATA_DIR / "gmail_client.json"
 TOKEN_FILE = config.DATA_DIR / "gmail_token.json"
+LOGIN_FILE = config.DATA_DIR / "gmail_login_at"   # the OAuth app is in Testing mode: logins expire after 7 days
+LOGIN_DAYS = 7
 API = "https://gmail.googleapis.com/gmail/v1/users/me"
 ET = ZoneInfo("America/New_York")
-MAX_BODY = 2500
+MAX_BODY = 1500  # emails run ~2.8-3.7 chars/token; the whole request must fit 2048 tokens
 CATEGORIES = {"CATEGORY_PROMOTIONS": "promotions", "CATEGORY_SOCIAL": "social", "CATEGORY_UPDATES": "updates",
               "CATEGORY_FORUMS": "forums", "CATEGORY_PERSONAL": "primary"}
 
@@ -56,7 +59,14 @@ class Gmail:
         r = await self.client.get(API + path, params=params, headers=await self._headers())
         if r.status_code == 401:
             r = await self.client.get(API + path, params=params, headers=await self._headers(force=True))
-        r.raise_for_status()
+        # Gmail answers 403/429 when one user sends requests too fast; back off and retry.
+        for delay in (2, 5, 15):
+            if r.status_code not in (403, 429) or "ateLimit" not in r.text:
+                break
+            await asyncio.sleep(delay)
+            r = await self.client.get(API + path, params=params, headers=await self._headers())
+        if r.is_error:
+            raise GmailError(f"{r.status_code} {path}: {r.text[:300]}")
         return r.json()
 
     async def list_ids(self, query: str) -> list[dict]:
@@ -70,6 +80,10 @@ class Gmail:
             token = page.get("nextPageToken")
             if not token or len(out) >= 300:
                 return out
+
+
+class GmailError(Exception):
+    pass
 
 
 gmail = Gmail()
@@ -154,7 +168,13 @@ async def poll() -> None:
         gmail.state.setdefault(gid, (gid in unread, True))
         if db.exists(f"mail:{gid}"):
             continue
-        item = parse(await gmail.get(f"/messages/{gid}", format="full"))
+        try:
+            item = parse(await gmail.get(f"/messages/{gid}", format="full"))
+        except GmailError as e:
+            # Skip just this message; it is retried on the next poll.
+            print(f"[mail] fetch failed, will retry: {e}", flush=True)
+            continue
+        await asyncio.sleep(0.1)  # stay well under Gmail's per-user rate limit during a backlog
         db.insert_item(item)
         decider.enqueue(item["id"], "mail", item["published"])
         bus.publish({"t": "ingest", "source": "mail", "id": item["id"], "title": item["title"]})
@@ -182,8 +202,8 @@ async def run() -> None:
             bus.publish({"t": "mail_changed"})
         try:
             await poll()
-            if gmail.status != "ok":
-                gmail.status = "ok"
+            if gmail.status != "ok" or gmail.error:
+                gmail.status, gmail.error = "ok", ""
                 bus.publish({"t": "mail_changed"})
             failures = 0
         except Exception as e:
@@ -194,8 +214,31 @@ async def run() -> None:
             bus.publish({"t": "mail_changed"})
             if gmail.status == "auth_error":
                 gmail.creds = None   # token revoked/expired: wait for a fresh login
+                await ntfy("Clef: Gmail login expired", "Mail triage is paused until you re-run "
+                           "uv run python -m clefd.gmail_auth", tags=["email"], priority=4)
         interval = config.mail.get().get("gmail", {}).get("poll_seconds", 60)
         await asyncio.sleep(min(interval * 2 ** min(failures, 4), 1800))
+
+
+def login_age_days() -> float | None:
+    try:
+        return (time.time() - float(LOGIN_FILE.read_text())) / 86400
+    except (OSError, ValueError):
+        return None
+
+
+async def reminder_loop() -> None:
+    """Push a re-login reminder a day before Google expires the Testing-mode login."""
+    while True:
+        age = login_age_days()
+        reminded = db.kv_get("gmail_reminded_for")
+        login_at = LOGIN_FILE.read_text().strip() if LOGIN_FILE.exists() else None
+        if age is not None and age >= LOGIN_DAYS - 1 and reminded != login_at:
+            await ntfy("Clef: Gmail login expires tomorrow",
+                       "Re-run: ssh -L 8765:localhost:8765 nikhilesh@omarchy, then "
+                       "cd ~/projects/clef && uv run python -m clefd.gmail_auth", tags=["email"], priority=3)
+            db.kv_set("gmail_reminded_for", login_at)
+        await asyncio.sleep(3600)
 
 
 async def prune_loop() -> None:
@@ -222,7 +265,26 @@ QUESTIONS = {
     "needs_reply": {"type": "noul", "instructions": "Does the sender expect a reply from the reader?"},
     "deadline": {"type": "noul",
                  "instructions": "Does this email mention a deadline, due date or time-sensitive action in the next 3 days?"},
+    "one_time_code": {"type": "noul",
+                      "instructions": "Is this email a one-time verification code, login code, magic sign-in link or "
+                                      "password reset, which is only useful for a few minutes?"},
 }
+
+# Fallback for emails triaged before the one_time_code question existed.
+CODE_SUBJECT = re.compile(r"(?i)\b(verification|verify|one[- ]time|otp|passcode|login code|sign[- ]in (code|link)|"
+                          r"security code|confirm(ation)? code|reset your password|\d{6})\b")
+
+
+def effective_label(label: str, confidence: float, answers: dict, title: str, published: float) -> str:
+    """Panel-time rules on top of Clef's call, tunable in mail.toml without re-triaging."""
+    cfg = config.mail.get().get("gmail", {})
+    code = answers.get("one_time_code", {}).get("noul")
+    is_code = code >= 0.6 if code is not None else bool(CODE_SUBJECT.search(title))
+    if is_code and time.time() - published > cfg.get("code_stale_minutes", 15) * 60:
+        return "ignore"
+    if label == "read_today" and confidence < cfg.get("read_today_min", 0.6):
+        return "fyi"
+    return label
 
 
 def _when(ts: float) -> str:
@@ -258,13 +320,14 @@ def state(item: dict) -> dict:
 def interpret(item: dict, answers: dict) -> dict:
     t = answers["triage"]
     p = t["probabilities"][t["choice"]]
+    shown_as = effective_label(t["choice"], p, answers, item["title"], item["published"])
     return {
         "label": t["choice"],
         "confidence": p,
         "score": t["probabilities"]["read_today"],
         "flag": max(answers["needs_reply"]["noul"], answers["deadline"]["noul"]),
-        "path": f"MAIL > {t['choice'].upper()} > {p:.2f}",
-        "show": t["choice"] != "ignore",
+        "path": f"MAIL > {shown_as.upper()} > {p:.2f}",
+        "show": shown_as != "ignore",
     }
 
 
@@ -287,14 +350,24 @@ def panel() -> dict:
         if not in_inbox:
             continue  # archived or deleted: dealt with
         a = it.pop("answers") or {}
+        label = effective_label(it["label"], it["confidence"], a, it["title"], it["published"])
+        if label == "ignore":
+            continue
         items.append({
             "id": it["id"], "title": it["title"], "origin": it["origin"], "summary": it["summary"],
-            "url": it["url"], "label": it["label"], "confidence": it["confidence"], "published": it["published"],
+            "url": it["url"], "label": label, "confidence": it["confidence"], "published": it["published"],
             "unread": unread, "category": it["meta"]["category"],
             "needs_reply": a.get("needs_reply", {}).get("noul", 0),
             "deadline": a.get("deadline", {}).get("noul", 0),
         })
-    order = {"read_today": 0, "fyi": 1}
-    items.sort(key=lambda i: (not i["unread"], order[i["label"]], -i["published"]))
+    # Unread read_today first, most confident on top; then unread fyi and already-read mail, newest first.
+    def key(i):
+        if i["unread"] and i["label"] == "read_today":
+            return (0, -i["confidence"])
+        return (1 if i["unread"] else 2, -i["published"])
+    items.sort(key=key)
     pending = db.conn.execute("SELECT COUNT(*) FROM items WHERE source='mail' AND status='pending'").fetchone()[0]
-    return {"status": gmail.status, "error": gmail.error, "email": gmail.email, "pending": pending, "items": items}
+    age = login_age_days()
+    expires_in = round(LOGIN_DAYS - age, 1) if age is not None else None
+    return {"status": gmail.status, "error": gmail.error, "email": gmail.email, "pending": pending, "items": items,
+            "login_expires_days": expires_in}
