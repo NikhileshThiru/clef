@@ -178,20 +178,57 @@ a { color: inherit; text-decoration: none; }
 .meter { color: var(--accent); letter-spacing: -1px; }
 .meter b { color: var(--cyan); font-weight: normal; }
 
-/* ---------------------------------------------------------------- core (placeholder until the visual lands) */
+/* ---------------------------------------------------------------- core */
 
-.core > .body { padding: 0; position: relative; }
+.core > .body { padding: 0; position: relative; overflow: hidden; border-radius: 4px; }
+.core canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 
-.ticker {
+/* Scanlines + vignette over the canvas for the HUD look. */
+.hud {
   position: absolute;
-  inset: 12px 10px 8px;
-  display: flex;
-  flex-direction: column-reverse;
-  overflow: hidden;
-  font-size: 11px;
+  inset: 0;
+  pointer-events: none;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: var(--fg-dim);
+  background:
+    repeating-linear-gradient(0deg, rgb(0 0 0 / 0.18) 0 1px, transparent 1px 3px),
+    radial-gradient(ellipse at center, transparent 55%, rgb(0 0 0 / 0.55));
 }
 
-.ticker div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hud-corner { position: absolute; padding: 6px 9px; }
+.hud-corner::before {
+  content: "";
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border-color: var(--accent);
+  border-style: solid;
+  border-width: 0;
+}
+.hud-corner.tl { top: 10px; left: 10px; }
+.hud-corner.tl::before { top: 0; left: 0; border-top-width: 1px; border-left-width: 1px; }
+.hud-corner.tr { top: 10px; right: 10px; text-align: right; }
+.hud-corner.tr::before { top: 0; right: 0; border-top-width: 1px; border-right-width: 1px; }
+.hud-corner.bl { bottom: 8px; left: 10px; max-width: 62%; }
+.hud-corner.bl::before { bottom: 0; left: 0; border-bottom-width: 1px; border-left-width: 1px; }
+.hud-corner.br { bottom: 8px; right: 10px; text-align: right; opacity: 0.75; }
+.hud-corner.br::before { bottom: 0; right: 0; border-bottom-width: 1px; border-right-width: 1px; }
+
+.hud-title { color: var(--cyan); font-weight: bold; letter-spacing: 0.3em; }
+.hud b { color: var(--cyan-bright); font-weight: normal; }
+.hud b.off { color: var(--alert); }
+.hud .tr span { color: var(--cyan); font-size: 12px; }
+.hud small { font-size: 9px; }
+.hud-path {
+  font-size: 15px;
+  font-weight: bold;
+  letter-spacing: 0.08em;
+  color: var(--cyan);
+  text-shadow: 0 0 8px currentColor;
+}
+.hud-sub { margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: 0.04em; }
+.hud .br div { white-space: nowrap; }
 
 /* ---------------------------------------------------------------- vitals */
 
