@@ -1,9 +1,11 @@
-// Bottom right: the Clef core. Every motion here is caused by a real backend event:
-//   ingest   -> a particle stream flies in from the edge facing that source's panel
-//   decision -> the core flares and ripples in the source's color; items that make it
-//               onto the dashboard shoot back out toward their panel
-//   stats    -> the gauge arcs (decisions/min, queue) and online/offline power level
-// With no events the core only breathes.
+// Bottom right: the Clef core, a small 3D scene in space.
+//
+// Every effect is caused by a real backend event:
+//   ingest   -> a particle stream leaves that source's orbiting moon and arcs into the core
+//   decision -> the core flares, a shockwave sphere and a disk ripple expand in the source's
+//               color; items that make it onto the dashboard stream back out to their moon
+//   stats    -> the gauge arcs (decisions/min, queue) and the online/offline power level
+// With no events the core only breathes while the camera drifts slowly around it.
 import * as THREE from "three";
 import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
@@ -15,7 +17,6 @@ const css = getComputedStyle(document.documentElement);
 const color = (name) => new THREE.Color(css.getPropertyValue(name).trim());
 
 const C = {
-  bg: color("--bg"),
   cyan: color("--cyan"),
   hot: color("--cyan-bright"),
   accent: color("--accent"),
@@ -29,17 +30,8 @@ const C = {
   },
 };
 
-// Where each source's panel sits relative to the core (bottom right of the grid),
-// as a spawn region on the scene's edge in normalized [-1, 1] coordinates.
-const EDGES = {
-  mail: () => [-1.08, 0.6 + Math.random() * 0.5],                 // top-left
-  news: () => [-1.08, -0.7 + Math.random() * 1.0],                 // left
-  system: () => [-0.4 + Math.random() * 1.2, 1.1],                 // top (vitals)
-  jobs: () => [1.08, -0.8 + Math.random() * 1.6],                  // right
-};
-
-const CAM_Z = 10;
-const FOV = 38;
+const FOV = 45;
+const CAM_DIST = 12.5;
 
 // ---------------------------------------------------------------- GLSL
 
@@ -69,6 +61,12 @@ float snoise(vec3 v){
   return 42.*dot(m*m,vec4(dot(p0,x0),dot(p1,x1),dot(p2,x2),dot(p3,x3)));
 }`;
 
+// A round, soft point sprite.
+const SOFT_POINT = /* glsl */ `
+  float d = length(gl_PointCoord - .5);
+  if (d > .5) discard;
+  float soft = smoothstep(.5, 0., d);`;
+
 // Uniforms shared by every material so one update drives the whole scene.
 const U = {
   uTime: { value: 0 },
@@ -79,6 +77,59 @@ const U = {
   uAbsorb: { value: 0 },
   uPixelRatio: { value: 1 },
 };
+
+const additive = { transparent: true, depthWrite: false, blending: THREE.AdditiveBlending };
+
+// ---------------------------------------------------------------- materials
+
+// Faint nebula on the inside of a huge sphere: direction-based noise, so no seams.
+const nebulaMaterial = new THREE.ShaderMaterial({
+  uniforms: { uPower: U.uPower, uTeal: { value: C.accent }, uCyan: { value: C.cyan } },
+  side: THREE.BackSide,
+  depthWrite: false,
+  vertexShader: /* glsl */ `
+    varying vec3 vDir;
+    void main() { vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.); }`,
+  fragmentShader: /* glsl */ `
+    uniform float uPower;
+    uniform vec3 uTeal, uCyan;
+    varying vec3 vDir;
+    ${NOISE}
+    float fbm(vec3 p) { return snoise(p) * .55 + snoise(p * 2.1) * .3 + snoise(p * 4.3) * .15; }
+    void main() {
+      float n = fbm(vDir * 1.6);
+      float wisps = fbm(vDir * 3.4 + 7.3);
+      float cloud = pow(smoothstep(.2, .95, n * .5 + .5), 2.) * (.5 + .5 * wisps);
+      vec3 col = uTeal * cloud * .045 + uCyan * pow(max(wisps, 0.), 5.) * .015;
+      gl_FragColor = vec4(col * mix(.5, 1., uPower), 1.);
+    }`,
+});
+
+const starMaterial = new THREE.ShaderMaterial({
+  uniforms: { uTime: U.uTime, uPixelRatio: U.uPixelRatio, uPower: U.uPower },
+  ...additive,
+  vertexShader: /* glsl */ `
+    uniform float uTime, uPixelRatio;
+    attribute float aSize, aSeed;
+    attribute vec3 aColor;
+    varying vec3 vColor;
+    varying float vAlpha;
+    void main() {
+      vColor = aColor;
+      vAlpha = .55 + .45 * sin(uTime * (.6 + aSeed * 2.2) + aSeed * 60.);
+      gl_PointSize = aSize * uPixelRatio;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.);
+    }`,
+  fragmentShader: /* glsl */ `
+    uniform float uPower;
+    varying vec3 vColor;
+    varying float vAlpha;
+    void main() {
+      ${SOFT_POINT}
+      float a = pow(soft, 2.) * vAlpha * mix(.4, 1., uPower);
+      gl_FragColor = vec4(vColor * a, a);
+    }`,
+});
 
 const coreMaterial = new THREE.ShaderMaterial({
   uniforms: { ...U, uBase: { value: C.accent }, uHot: { value: C.cyan } },
@@ -113,58 +164,64 @@ const coreMaterial = new THREE.ShaderMaterial({
     }`,
 });
 
-const glowMaterial = new THREE.ShaderMaterial({
+// Soft atmosphere: a slightly larger sphere that only glows at its edge.
+const atmosphereMaterial = new THREE.ShaderMaterial({
   uniforms: { ...U, uHot: { value: C.cyan } },
-  transparent: true,
-  depthWrite: false,
-  blending: THREE.AdditiveBlending,
+  ...additive,
   vertexShader: /* glsl */ `
-    varying vec2 vUv;
-    void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.); }`,
+    varying vec3 vNormal, vView;
+    void main() {
+      vec4 mv = modelViewMatrix * vec4(position, 1.);
+      vNormal = normalize(normalMatrix * normal);
+      vView = normalize(-mv.xyz);
+      gl_Position = projectionMatrix * mv;
+    }`,
   fragmentShader: /* glsl */ `
     uniform float uBreath, uFlare, uPower, uAbsorb;
     uniform vec3 uHot, uFlareColor;
-    varying vec2 vUv;
+    varying vec3 vNormal, vView;
     void main() {
-      float d = length(vUv - .5) * 2.;
-      float a = pow(max(1. - d, 0.), 4.) * (.22 + .12 * uBreath + .7 * uFlare + .3 * uAbsorb) * uPower;
+      float f = pow(1. - abs(dot(vNormal, vView)), 3.);
+      float a = f * (.55 + .2 * uBreath + .9 * uFlare + .3 * uAbsorb) * uPower;
       gl_FragColor = vec4(mix(uHot, uFlareColor, uFlare) * a, a);
     }`,
 });
 
-const shellMaterial = new THREE.ShaderMaterial({
-  uniforms: { ...U, uColor: { value: C.cyan } },
-  transparent: true,
-  depthWrite: false,
-  blending: THREE.AdditiveBlending,
+// Accretion disk: thousands of particles on Keplerian orbits (inner ones faster) with spiral arms.
+const diskMaterial = new THREE.ShaderMaterial({
+  uniforms: { ...U, uInner: { value: C.hot }, uOuter: { value: C.accent } },
+  ...additive,
   vertexShader: /* glsl */ `
     uniform float uTime, uFlare, uPixelRatio;
-    attribute vec4 aParams;   // theta0, phi, radius, angular speed
-    attribute float aSeed;
+    uniform vec3 uInner, uOuter, uFlareColor;
+    attribute float aRadius, aTheta, aHeight, aSeed;
+    varying vec3 vColor;
     varying float vAlpha;
     void main() {
-      float th = aParams.x + uTime * aParams.w;
-      float ph = aParams.y + .15 * sin(uTime * .3 + aSeed * 6.283);
-      float r = aParams.z * (1. + .3 * uFlare * (.5 + aSeed));
-      vec3 p = vec3(r * sin(ph) * cos(th), r * cos(ph), r * sin(ph) * sin(th));
+      float th = aTheta + uTime * .55 * pow(aRadius, -1.5);
+      float arm = .5 + .5 * cos(2. * (th - log(aRadius) * 3.2));
+      float r = aRadius * (1. + uFlare * .12 * aSeed);
+      vec3 p = vec3(r * cos(th), aHeight * (1. + uFlare), r * sin(th));
       vec4 mv = modelViewMatrix * vec4(p, 1.);
-      gl_PointSize = (1.2 + 2.4 * aSeed) * uPixelRatio * (9. / -mv.z);
-      vAlpha = .25 + .55 * (.5 + .5 * sin(uTime * (1. + 3. * aSeed) + aSeed * 40.));
+      float t = smoothstep(1.85, 3.35, aRadius);
+      vColor = mix(mix(uInner, uOuter, t), uFlareColor, uFlare * .5);
+      vAlpha = (.22 + .6 * arm) * (1. - t * .45) * (.6 + .4 * aSeed);
+      gl_PointSize = (1.3 + 2.4 * aSeed) * uPixelRatio * (13. / -mv.z);
       gl_Position = projectionMatrix * mv;
     }`,
   fragmentShader: /* glsl */ `
-    uniform vec3 uColor, uFlareColor;
-    uniform float uFlare, uPower;
+    uniform float uPower, uFlare;
+    varying vec3 vColor;
     varying float vAlpha;
     void main() {
-      float d = length(gl_PointCoord - .5);
-      if (d > .5) discard;
-      float a = smoothstep(.5, 0., d) * vAlpha * uPower;
-      gl_FragColor = vec4(mix(uColor, uFlareColor, uFlare * .6) * a, a);
+      ${SOFT_POINT}
+      float a = soft * vAlpha * (1. + uFlare) * uPower;
+      gl_FragColor = vec4(vColor * a, a);
     }`,
 });
 
-function ringMaterial({ col = C.cyan, opacity = 0.5, segments = 0, duty = 1, fill = -1 } = {}) {
+// Segmented emissive ring. Works on RingGeometry (angle from position) and TorusGeometry (angle from uv.x).
+function ringMaterial({ col = C.cyan, opacity = 0.5, segments = 0, duty = 1, fill = -1, torus = false } = {}) {
   return new THREE.ShaderMaterial({
     uniforms: {
       uPower: U.uPower,
@@ -174,33 +231,55 @@ function ringMaterial({ col = C.cyan, opacity = 0.5, segments = 0, duty = 1, fil
       uDuty: { value: duty },
       uFill: { value: fill },
     },
-    transparent: true,
-    depthWrite: false,
+    ...additive,
     side: THREE.DoubleSide,
-    blending: THREE.AdditiveBlending,
     vertexShader: /* glsl */ `
-      varying vec2 vPos;
-      void main() { vPos = position.xy; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.); }`,
+      varying float vA;
+      void main() {
+        vA = ${torus ? "uv.x" : "atan(position.y, position.x) / 6.28318 + .5"};
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.);
+      }`,
     fragmentShader: /* glsl */ `
       uniform vec3 uColor;
       uniform float uOpacity, uSeg, uDuty, uFill, uPower;
-      varying vec2 vPos;
+      varying float vA;
       void main() {
-        float a = atan(vPos.y, vPos.x) / 6.28318 + .5;
-        float on = uSeg > 0. ? step(fract(a * uSeg), uDuty) : 1.;
+        float on = uSeg > 0. ? step(fract(vA * uSeg), uDuty) : 1.;
         float alpha = uOpacity * on;
-        if (uFill >= 0.) alpha *= a < uFill ? 1. : .15;
+        if (uFill >= 0.) alpha *= vA < uFill ? 1. : .15;
         alpha *= mix(.45, 1., uPower);
         gl_FragColor = vec4(uColor * alpha, alpha);
       }`,
   });
 }
 
-const streamMaterial = new THREE.ShaderMaterial({
-  uniforms: { uPixelRatio: U.uPixelRatio },
-  transparent: true,
-  depthWrite: false,
-  blending: THREE.AdditiveBlending,
+// Expanding shockwave shell: bright at its edge, see-through in the middle.
+function shellMaterial() {
+  return new THREE.ShaderMaterial({
+    uniforms: { uColor: { value: C.cyan.clone() }, uOpacity: { value: 0 } },
+    ...additive,
+    vertexShader: /* glsl */ `
+      varying vec3 vNormal, vView;
+      void main() {
+        vec4 mv = modelViewMatrix * vec4(position, 1.);
+        vNormal = normalize(normalMatrix * normal);
+        vView = normalize(-mv.xyz);
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: /* glsl */ `
+      uniform vec3 uColor;
+      uniform float uOpacity;
+      varying vec3 vNormal, vView;
+      void main() {
+        float f = pow(1. - abs(dot(vNormal, vView)), 2.5);
+        gl_FragColor = vec4(uColor * f * uOpacity, f * uOpacity);
+      }`,
+  });
+}
+
+const pointMaterial = (sizeScale) => new THREE.ShaderMaterial({
+  uniforms: { uPixelRatio: U.uPixelRatio, uPower: U.uPower },
+  ...additive,
   vertexShader: /* glsl */ `
     uniform float uPixelRatio;
     attribute vec3 aColor;
@@ -210,16 +289,16 @@ const streamMaterial = new THREE.ShaderMaterial({
     void main() {
       vColor = aColor; vAlpha = aAlpha;
       vec4 mv = modelViewMatrix * vec4(position, 1.);
-      gl_PointSize = aSize * uPixelRatio * (10. / -mv.z);
+      gl_PointSize = aSize * uPixelRatio * (${sizeScale.toFixed(1)} / -mv.z);
       gl_Position = projectionMatrix * mv;
     }`,
   fragmentShader: /* glsl */ `
+    uniform float uPower;
     varying vec3 vColor;
     varying float vAlpha;
     void main() {
-      float d = length(gl_PointCoord - .5);
-      if (d > .5) discard;
-      float a = smoothstep(.5, .05, d) * vAlpha;
+      ${SOFT_POINT}
+      float a = soft * vAlpha * mix(.4, 1., uPower);
       gl_FragColor = vec4(vColor * a * 1.6, a);
     }`,
 });
@@ -231,83 +310,194 @@ body.append(canvas);
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: "low-power" });
 renderer.setClearColor(0x000000, 1); // the theme bg gets double sRGB-converted through the composer; black reads the same
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(FOV, 16 / 9, 0.1, 100);
-camera.position.z = CAM_Z;
+const camera = new THREE.PerspectiveCamera(FOV, 16 / 9, 0.1, 400);
 
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
-const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.75, 0.2, 0.22);
+const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.75, 0.3, 0.22);
 composer.addPass(bloom);
 composer.addPass(new OutputPass());
 
-const core = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 40), coreMaterial);
-scene.add(core);
+scene.add(new THREE.Mesh(new THREE.SphereGeometry(200, 48, 24), nebulaMaterial));
 
-const glow = new THREE.Mesh(new THREE.PlaneGeometry(5, 5), glowMaterial);
-glow.position.z = -1.2;
-scene.add(glow);
-
-{
-  const N = 1600;
-  const params = new Float32Array(N * 4);
-  const seeds = new Float32Array(N);
-  for (let i = 0; i < N; i++) {
-    params.set([Math.random() * Math.PI * 2, Math.acos(2 * Math.random() - 1),
-      1.2 + Math.pow(Math.random(), 2) * 0.6, (0.08 + Math.random() * 0.25) * (Math.random() < 0.5 ? -1 : 1)], i * 4);
-    seeds[i] = Math.random();
-  }
+function pointCloud(n, place, material, extra = {}) {
   const g = new THREE.BufferGeometry();
-  g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(N * 3), 3));
-  g.setAttribute("aParams", new THREE.BufferAttribute(params, 4));
-  g.setAttribute("aSeed", new THREE.BufferAttribute(seeds, 1));
-  const shell = new THREE.Points(g, shellMaterial);
-  shell.frustumCulled = false;
-  shell.rotation.z = 0.35;
-  scene.add(shell);
+  const pos = new Float32Array(n * 3);
+  const attrs = Object.fromEntries(Object.entries(extra).map(([k, size]) => [k, new Float32Array(n * size)]));
+  for (let i = 0; i < n; i++) place(i, pos, attrs);
+  g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  for (const [k, size] of Object.entries(extra)) g.setAttribute(k, new THREE.BufferAttribute(attrs[k], size));
+  const pts = new THREE.Points(g, material);
+  pts.frustumCulled = false;
+  return pts;
 }
 
-// HUD rings: [inner, outer, material opts, tilt x, tilt y, spin speed]
-const rings = [
-  [1.78, 1.8, { opacity: 0.55 }, 0, 0, 0.05],
-  [1.86, 1.93, { opacity: 0.4, segments: 120, duty: 0.35 }, 0, 0, -0.08],
-  [2.05, 2.1, { opacity: 0.55, segments: 3, duty: 0.27 }, 0, 0, 0.18],
-  [2.3, 2.32, { opacity: 0.35, segments: 240, duty: 0.5 }, 1.15, 0.2, 0.12],
-  [2.45, 2.47, { opacity: 0.3, segments: 8, duty: 0.7, col: C.accent }, -0.9, 0.5, -0.1],
-].map(([r0, r1, opts, tx, ty, speed]) => {
+function randomDirection() {
+  const u = Math.random() * 2 - 1, th = Math.random() * Math.PI * 2, s = Math.sqrt(1 - u * u);
+  return [s * Math.cos(th), u, s * Math.sin(th)];
+}
+
+// Distant stars: mostly faint cyan-white, a few bright, a few warm.
+const starWarm = new THREE.Color("#ffd9a8"), starCool = new THREE.Color("#cfefff");
+scene.add(pointCloud(2600, (i, pos, a) => {
+  const [x, y, z] = randomDirection(), r = 60 + Math.random() * 100;
+  pos.set([x * r, y * r, z * r], i * 3);
+  const bright = Math.random() < 0.04;
+  a.aSize[i] = bright ? 3 + Math.random() * 2.5 : 0.8 + Math.random() * 1.6;
+  a.aSeed[i] = Math.random();
+  const c = (Math.random() < 0.12 ? starWarm : starCool).clone().lerp(C.cyan, Math.random() * 0.35)
+    .multiplyScalar(bright ? 1.8 : 0.7 + Math.random() * 0.5);
+  a.aColor.set([c.r, c.g, c.b], i * 3);
+}, starMaterial, { aSize: 1, aSeed: 1, aColor: 3 }));
+
+// Nearby dust drifting with the camera for parallax.
+const dust = pointCloud(350, (i, pos, a) => {
+  const [x, y, z] = randomDirection(), r = 5 + Math.random() * 14;
+  pos.set([x * r, y * r, z * r], i * 3);
+  a.aSize[i] = 0.6 + Math.random() * 0.9;
+  a.aSeed[i] = Math.random();
+  const c = C.accent.clone().multiplyScalar(0.35 + Math.random() * 0.3);
+  a.aColor.set([c.r, c.g, c.b], i * 3);
+}, starMaterial, { aSize: 1, aSeed: 1, aColor: 3 });
+scene.add(dust);
+
+// The core system lives in its own group so the whole thing can be scaled to fit the panel.
+const system = new THREE.Group();
+scene.add(system);
+
+const core = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 40), coreMaterial);
+system.add(core);
+system.add(new THREE.Mesh(new THREE.IcosahedronGeometry(1.32, 12), atmosphereMaterial));
+
+const diskGroup = new THREE.Group();
+diskGroup.rotation.set(0.32, 0, 0.12);
+system.add(diskGroup);
+diskGroup.add(pointCloud(7000, (i, pos, a) => {
+  a.aRadius[i] = 1.85 + Math.pow(Math.random(), 1.4) * 1.5; // dark gap between core and disk
+  a.aTheta[i] = Math.random() * Math.PI * 2;
+  a.aHeight[i] = (Math.random() - 0.5) * 0.06 * a.aRadius[i];
+  a.aSeed[i] = Math.random();
+}, diskMaterial, { aRadius: 1, aTheta: 1, aHeight: 1, aSeed: 1 }));
+
+// Gyroscope rings: real 3D tori on different axes.
+const gyros = [
+  [1.48, { opacity: 0.5, segments: 64, duty: 0.55 }, [1.25, 0.2, 0], [0, 0.22, 0]],
+  [1.7, { opacity: 0.35, segments: 3, duty: 0.3 }, [-0.6, 0.9, 0.3], [0.15, 0, -0.12]],
+].map(([radius, opts, rot, spin]) => {
+  const m = new THREE.Mesh(new THREE.TorusGeometry(radius, 0.01, 6, 256), ringMaterial({ ...opts, torus: true }));
+  m.rotation.set(...rot);
+  m.userData.spin = spin;
+  system.add(m);
+  return m;
+});
+
+// HUD rings + gauges always face the camera, like an overlay pinned to the core.
+const hudGroup = new THREE.Group();
+system.add(hudGroup);
+const hudRings = [
+  [3.3, 3.33, { opacity: 0.4, segments: 180, duty: 0.45 }, 0.05],
+  [3.45, 3.5, { opacity: 0.45, segments: 3, duty: 0.25 }, -0.12],
+].map(([r0, r1, opts, speed]) => {
   const m = new THREE.Mesh(new THREE.RingGeometry(r0, r1, 256, 1), ringMaterial(opts));
-  m.rotation.set(tx, ty, Math.random() * 6);
+  m.rotation.z = Math.random() * 6;
   m.userData.speed = speed;
-  scene.add(m);
+  hudGroup.add(m);
   return m;
 });
-
-// Gauges: decisions/min on the left half, queue depth on the right half.
 // A half ring spans a in [0.5, 1) in the ring shader, so fill = 0.5 + 0.5 * level.
-function gauge(r0, r1, rotation) {
-  const m = new THREE.Mesh(new THREE.RingGeometry(r0, r1, 128, 1, 0, Math.PI), ringMaterial({ opacity: 0.85, fill: 0.5 }));
+function gauge(rotation) {
+  const m = new THREE.Mesh(new THREE.RingGeometry(3.62, 3.7, 128, 1, 0, Math.PI), ringMaterial({ opacity: 0.85, fill: 0.5 }));
   m.rotation.z = rotation;
-  scene.add(m);
+  hudGroup.add(m);
   return m;
 }
-const dpmGauge = gauge(2.68, 2.76, Math.PI / 2);   // sweeps the left half, top to bottom
-const queueGauge = gauge(2.68, 2.76, -Math.PI / 2); // sweeps the right half, bottom to top
+const dpmGauge = gauge(Math.PI / 2);    // left half, sweeping top to bottom
+const queueGauge = gauge(-Math.PI / 2); // right half, sweeping bottom to top
 
-// ---------------------------------------------------------------- ripples
+// ---------------------------------------------------------------- source moons
 
-const ripples = Array.from({ length: 10 }, () => {
-  const mat = ringMaterial({ opacity: 0 });
-  const m = new THREE.Mesh(new THREE.RingGeometry(0.96, 1, 128, 1), mat);
+// One moon per source on its own tilted orbit, like an orrery. Streams leave from the moon.
+const MOONS = {
+  mail:   { radius: 4.3, incline: 0.55, node: 0.4, speed: 0.07, phase: 0.0 },
+  news:   { radius: 5.0, incline: -0.35, node: 1.9, speed: 0.05, phase: 2.2 },
+  jobs:   { radius: 4.65, incline: 0.95, node: -1.1, speed: 0.06, phase: 4.1 },
+  system: { radius: 3.95, incline: -0.85, node: 2.8, speed: 0.08, phase: 1.1 },
+};
+const moonNames = Object.keys(MOONS);
+const moonPositions = {};
+for (const [name, m] of Object.entries(MOONS)) {
+  m.basis = new THREE.Matrix4().makeRotationY(m.node).multiply(new THREE.Matrix4().makeRotationX(m.incline));
+  m.activity = 0;
+  moonPositions[name] = new THREE.Vector3();
+  const pts = Array.from({ length: 160 }, (_, i) => {
+    const a = (i / 160) * Math.PI * 2;
+    return new THREE.Vector3(Math.cos(a) * m.radius, 0, Math.sin(a) * m.radius).applyMatrix4(m.basis);
+  });
+  const line = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts),
+    new THREE.LineBasicMaterial({ color: C.src[name], transparent: true, opacity: 0.09, depthWrite: false,
+      blending: THREE.AdditiveBlending }));
+  system.add(line);
+}
+
+function moonAt(name, t, out) {
+  const m = MOONS[name], a = m.phase + t * m.speed;
+  return out.set(Math.cos(a) * m.radius, 0, Math.sin(a) * m.radius).applyMatrix4(m.basis);
+}
+
+const moonGeo = new THREE.BufferGeometry();
+const moonPos = new Float32Array(moonNames.length * 3);
+const moonCol = new Float32Array(moonNames.length * 3);
+const moonSize = new Float32Array(moonNames.length);
+const moonAlpha = new Float32Array(moonNames.length).fill(1);
+moonNames.forEach((n, i) => moonCol.set([C.src[n].r, C.src[n].g, C.src[n].b], i * 3));
+moonGeo.setAttribute("position", new THREE.BufferAttribute(moonPos, 3));
+moonGeo.setAttribute("aColor", new THREE.BufferAttribute(moonCol, 3));
+moonGeo.setAttribute("aSize", new THREE.BufferAttribute(moonSize, 1));
+moonGeo.setAttribute("aAlpha", new THREE.BufferAttribute(moonAlpha, 1));
+const moons = new THREE.Points(moonGeo, pointMaterial(14));
+moons.frustumCulled = false;
+system.add(moons);
+
+// ---------------------------------------------------------------- shockwaves
+
+const shells = Array.from({ length: 6 }, () => {
+  const m = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 4), shellMaterial());
   m.visible = false;
-  m.userData = { t: 1, dur: 1.6, max: 4.5 };
-  scene.add(m);
+  m.userData = { t: 1 };
+  system.add(m);
   return m;
 });
-let rippleIdx = 0;
+const diskRipples = Array.from({ length: 6 }, () => {
+  const m = new THREE.Mesh(new THREE.RingGeometry(0.97, 1, 160, 1), ringMaterial({ opacity: 0 }));
+  m.rotation.x = -Math.PI / 2; // lie in the disk plane
+  m.visible = false;
+  m.userData = { t: 1 };
+  diskGroup.add(m);
+  return m;
+});
+let waveIdx = 0;
 
-function ripple(col, { delay = 0, max = 4.5, strength = 1 } = {}) {
-  const m = ripples[rippleIdx++ % ripples.length];
-  m.material.uniforms.uColor.value.copy(col);
-  Object.assign(m.userData, { t: -delay, dur: 1.4 + max * 0.08, max, strength });
+function shockwave(col, { delay = 0, max = 5, strength = 1 } = {}) {
+  const i = waveIdx++ % shells.length;
+  for (const [m, size] of [[shells[i], max], [diskRipples[i], max * 1.1]]) {
+    m.material.uniforms.uColor.value.copy(col);
+    Object.assign(m.userData, { t: -delay, dur: 1.3 + max * 0.12, max: size, strength });
+  }
+}
+
+function updateWaves(dt) {
+  for (const group of [shells, diskRipples]) {
+    for (const m of group) {
+      const d = m.userData;
+      if (d.t >= 1) { m.visible = false; continue; }
+      d.t += dt / d.dur;
+      if (d.t < 0) continue;
+      const e = 1 - Math.pow(1 - Math.min(d.t, 1), 3);
+      m.visible = true;
+      m.scale.setScalar(1.05 + e * (d.max - 1.05));
+      m.material.uniforms.uOpacity.value = (1 - e) * (group === shells ? 0.9 : 0.8) * d.strength;
+    }
+  }
 }
 
 // ---------------------------------------------------------------- particle streams
@@ -315,8 +505,7 @@ function ripple(col, { delay = 0, max = 4.5, strength = 1 } = {}) {
 const MAXP = 600;  // particles
 const TRAIL = 6;   // points per particle (head + trail)
 const P = {
-  sx: new Float32Array(MAXP), sy: new Float32Array(MAXP), cx: new Float32Array(MAXP), cy: new Float32Array(MAXP),
-  ex: new Float32Array(MAXP), ey: new Float32Array(MAXP), z: new Float32Array(MAXP),
+  s: new Float32Array(MAXP * 3), c: new Float32Array(MAXP * 3), e: new Float32Array(MAXP * 3),
   t: new Float32Array(MAXP), dur: new Float32Array(MAXP), size: new Float32Array(MAXP),
   out: new Uint8Array(MAXP), alive: new Uint8Array(MAXP), col: new Float32Array(MAXP * 3),
 };
@@ -329,13 +518,13 @@ streamGeo.setAttribute("position", new THREE.BufferAttribute(sPos, 3).setUsage(T
 streamGeo.setAttribute("aColor", new THREE.BufferAttribute(sCol, 3).setUsage(THREE.DynamicDrawUsage));
 streamGeo.setAttribute("aSize", new THREE.BufferAttribute(sSize, 1).setUsage(THREE.DynamicDrawUsage));
 streamGeo.setAttribute("aAlpha", new THREE.BufferAttribute(sAlpha, 1).setUsage(THREE.DynamicDrawUsage));
-const streams = new THREE.Points(streamGeo, streamMaterial);
+const streams = new THREE.Points(streamGeo, pointMaterial(10));
 streams.frustumCulled = false;
-scene.add(streams);
+system.add(streams);
 
-let half = { w: 6, h: 3.4 };
 let nextSlot = 0;
 const pending = []; // packets waiting to launch, so a burst of 300 ingests doesn't spawn all at once
+const tmpA = new THREE.Vector3(), tmpB = new THREE.Vector3(), tmpC = new THREE.Vector3();
 
 function freeSlot() {
   for (let n = 0; n < MAXP; n++) {
@@ -346,25 +535,27 @@ function freeSlot() {
 }
 
 function launch({ source, count, outbound, dim }) {
-  const col = C.src[source] ?? C.cyan;
-  const [nx, ny] = (EDGES[source] ?? EDGES.news)();
-  const edge = [nx * half.w, ny * half.h];
+  const name = MOONS[source] ? source : "news";
+  const col = C.src[name] ?? C.cyan;
+  const moon = moonPositions[name];
+  MOONS[name].activity = Math.min(MOONS[name].activity + (outbound ? 0.6 : 1), 1.5);
   for (let k = 0; k < count; k++) {
     const i = freeSlot();
     if (i < 0) return;
-    const jx = edge[0] + (Math.random() - 0.5) * 0.9, jy = edge[1] + (Math.random() - 0.5) * 0.9;
-    const ang = Math.atan2(jy, jx) + (Math.random() - 0.5) * 0.6;
-    const cxr = Math.cos(ang) * 1.05, cyr = Math.sin(ang) * 1.05;
-    const [sx, sy, ex, ey] = outbound ? [cxr, cyr, jx, jy] : [jx, jy, cxr, cyr];
-    // Control point off to one side so streams curve in like they're being pulled into orbit.
-    const mx = (sx + ex) / 2, my = (sy + ey) / 2;
-    const swirl = (Math.random() < 0.5 ? -1 : 1) * (0.8 + Math.random() * 1.4);
-    const len = Math.hypot(ex - sx, ey - sy) || 1;
-    P.sx[i] = sx; P.sy[i] = sy; P.ex[i] = ex; P.ey[i] = ey;
-    P.cx[i] = mx + (-(ey - sy) / len) * swirl; P.cy[i] = my + ((ex - sx) / len) * swirl;
-    P.z[i] = (Math.random() - 0.5) * 0.8;
-    P.t[i] = -k * 0.04 - Math.random() * 0.05; // stagger within the packet
-    P.dur[i] = (outbound ? 1.1 : 1.6) + Math.random() * 0.6;
+    const start = tmpA.copy(moon).add(tmpC.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(0.35));
+    const end = tmpB.copy(start).normalize().multiplyScalar(1.05)
+      .add(tmpC.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(0.25));
+    const [s, e] = outbound ? [end, start] : [start, end];
+    // Control point lifted off the straight line so streams arc through space.
+    const mid = s.clone().add(e).multiplyScalar(0.5);
+    const lift = new THREE.Vector3().crossVectors(e.clone().sub(s), new THREE.Vector3(0, 1, 0)).normalize()
+      .multiplyScalar((Math.random() < 0.5 ? -1 : 1) * (0.6 + Math.random() * 1.2))
+      .add(new THREE.Vector3(0, (Math.random() - 0.3) * 1.2, 0));
+    P.s.set([s.x, s.y, s.z], i * 3);
+    P.e.set([e.x, e.y, e.z], i * 3);
+    P.c.set([mid.x + lift.x, mid.y + lift.y, mid.z + lift.z], i * 3);
+    P.t[i] = -k * 0.04 - Math.random() * 0.05;
+    P.dur[i] = (outbound ? 1.2 : 1.7) + Math.random() * 0.6;
     P.size[i] = (dim ? 1.6 : 2.6) + Math.random() * 1.5;
     P.out[i] = outbound ? 1 : 0;
     P.alive[i] = 1;
@@ -375,12 +566,14 @@ function launch({ source, count, outbound, dim }) {
 
 function updateStreams(dt) {
   const ease = (t, out) => (out ? 1 - Math.pow(1 - t, 2) : Math.pow(t, 1.7)); // fall into the core, fly out of it
+  let any = false;
   for (let i = 0; i < MAXP; i++) {
     const base = i * TRAIL;
     if (!P.alive[i]) {
-      for (let k = 0; k < TRAIL; k++) sAlpha[base + k] = 0;
+      if (sAlpha[base] !== 0) for (let k = 0; k < TRAIL; k++) sAlpha[base + k] = 0;
       continue;
     }
+    any = true;
     P.t[i] += dt / P.dur[i];
     const t = P.t[i];
     if (t >= 1 + TRAIL * 0.035) {
@@ -389,21 +582,19 @@ function updateStreams(dt) {
       continue;
     }
     for (let k = 0; k < TRAIL; k++) {
-      const tk = t - k * 0.035;
-      const j = base + k;
+      const tk = t - k * 0.035, j = base + k;
       if (tk < 0 || tk > 1) { sAlpha[j] = 0; continue; }
-      const e = ease(tk, P.out[i]);
-      const a = 1 - e, b = e;
-      sPos[j * 3] = a * a * P.sx[i] + 2 * a * b * P.cx[i] + b * b * P.ex[i];
-      sPos[j * 3 + 1] = a * a * P.sy[i] + 2 * a * b * P.cy[i] + b * b * P.ey[i];
-      sPos[j * 3 + 2] = P.z[i] * (P.out[i] ? e : 1 - e);
-      sCol[j * 3] = P.col[i * 3]; sCol[j * 3 + 1] = P.col[i * 3 + 1]; sCol[j * 3 + 2] = P.col[i * 3 + 2];
-      const fadeIn = Math.min(tk * 6, 1);
-      sAlpha[j] = (1 - k / TRAIL) * fadeIn * (P.out[i] ? 1 - tk * 0.8 : 1);
+      const e = ease(tk, P.out[i]), a = 1 - e, b = e;
+      for (let d = 0; d < 3; d++) {
+        sPos[j * 3 + d] = a * a * P.s[i * 3 + d] + 2 * a * b * P.c[i * 3 + d] + b * b * P.e[i * 3 + d];
+        sCol[j * 3 + d] = P.col[i * 3 + d];
+      }
+      sAlpha[j] = (1 - k / TRAIL) * Math.min(tk * 6, 1) * (P.out[i] ? 1 - tk * 0.8 : 1);
       sSize[j] = P.size[i] * (1 - k / (TRAIL + 2));
     }
   }
   for (const name of ["position", "aColor", "aSize", "aAlpha"]) streamGeo.attributes[name].needsUpdate = true;
+  return any;
 }
 
 // ---------------------------------------------------------------- HUD overlay
@@ -415,9 +606,11 @@ hud.innerHTML = `
   <div class="hud-corner tr"><div><span id="hud-dpm">0</span> <small>DEC/MIN</small></div><div><span id="hud-ms">–</span> <small>MS</small></div><div><span id="hud-q">0</span> <small>QUEUE</small></div></div>
   <div class="hud-corner bl"><div id="hud-path" class="hud-path">AWAITING SIGNAL</div><div id="hud-title" class="hud-sub"></div></div>
   <div class="hud-corner br" id="hud-log"></div>
-  <div class="hud-alert" id="hud-alert"></div>`;
+  <div class="hud-alert" id="hud-alert"></div>
+  ${moonNames.map((n) => `<div class="moon-label" id="moon-${n}" style="color:var(--src-${n})">${n === "system" ? "SYS" : n.toUpperCase()}</div>`).join("")}`;
 body.append(hud);
 const $ = (id) => hud.querySelector(id);
+const moonLabels = Object.fromEntries(moonNames.map((n) => [n, $(`#moon-${n}`)]));
 
 // Type the decision path on character by character, like a HUD readout.
 let typeTimer;
@@ -451,8 +644,8 @@ function onDecision(ev) {
   const col = shown ? C.src[ev.source] ?? C.cyan : C.accent.clone().lerp(C.muted, 0.3);
   U.uFlareColor.value.copy(col);
   U.uFlare.value = Math.max(U.uFlare.value, hot ? 1 : shown ? 0.8 : 0.3);
-  ripple(col, { max: hot ? 5.5 : shown ? 4.2 : 2.6 });
-  if (hot) ripple(col, { delay: 0.18, max: 6.5 });
+  shockwave(col, { max: hot ? 6 : shown ? 4.8 : 2.8, strength: shown ? 1 : 0.5 });
+  if (hot) shockwave(col, { delay: 0.2, max: 7.5 });
   if (shown) pending.push({ source: ev.source, count: hot ? 14 : 8, outbound: true });
 
   typePath(ev.path, col);
@@ -467,8 +660,7 @@ function showAlert(alert) {
 }
 
 export function onEvent(ev) {
-  if (ev.t === "alert") showAlert(ev.alert);
-  if (ev.t === "hello") showAlert(ev.alert);
+  if (ev.t === "alert" || ev.t === "hello") showAlert(ev.alert);
   if (ev.t === "ingest") {
     pending.push({ source: ev.source, count: ev.dup ? 3 : 7, dim: !!ev.dup });
     if (pending.length > 40) pending.splice(0, pending.length - 40);
@@ -484,8 +676,7 @@ export function onEvent(ev) {
     $("#hud-status").innerHTML = ev.clef_up
       ? "Q4_K_M · RTX 3060 · <b>ONLINE</b>" : `<b class="off">OFFLINE</b> · llama-server down`;
     if (ev.t === "hello" && ev.last) {
-      const col = ev.last.show ? C.src[ev.last.source] ?? C.cyan : C.accent;
-      typePath(ev.last.path, col);
+      typePath(ev.last.path, ev.last.show ? C.src[ev.last.source] ?? C.cyan : C.accent);
       $("#hud-title").textContent = ev.last.title.slice(0, 80);
     }
   }
@@ -500,9 +691,12 @@ if (new URLSearchParams(location.search).has("dev")) window.clefCore = { onEvent
 
 // ---------------------------------------------------------------- loop
 
+let size = { w: 1, h: 1 };
+
 function resize() {
   const { width, height } = body.getBoundingClientRect();
   if (!width || !height) return;
+  size = { w: width, h: height };
   const pr = Math.min(devicePixelRatio, 1.25);
   renderer.setPixelRatio(pr);
   renderer.setSize(width, height, false);
@@ -512,33 +706,35 @@ function resize() {
   U.uPixelRatio.value = pr;
   camera.aspect = width / height;
   camera.updateProjectionMatrix();
-  half.h = Math.tan(THREE.MathUtils.degToRad(FOV / 2)) * CAM_Z;
-  half.w = half.h * camera.aspect;
-  // Keep the outer gauge inside short panels.
-  const s = Math.min(1, (half.h * 0.9) / 2.8);
-  scene.scale.setScalar(s);
+  // Keep the outermost orbit inside short panels.
+  const halfH = Math.tan(THREE.MathUtils.degToRad(FOV / 2)) * CAM_DIST;
+  system.scale.setScalar(Math.min(1, (halfH * 0.95) / 5.2));
 }
 new ResizeObserver(resize).observe(body);
 resize();
 
 const clock = new THREE.Clock();
 let launchBudget = 0;
-// 30 fps while something is happening, 15 fps while the core only breathes.
-// Rendering is the kiosk's main CPU/iGPU cost, so idle frames are worth skipping.
+// 30 fps while something is happening, 20 fps while the core breathes and the camera drifts.
 const ACTIVE_MS = 1000 / 30;
-const IDLE_MS = 1000 / 15;
+const IDLE_MS = 1000 / 20;
 let lastFrame = 0;
+let streamsAlive = false;
+const proj = new THREE.Vector3();
 
 function busy() {
-  return U.uFlare.value > 0.02 || U.uAbsorb.value > 0.02 || pending.length > 0 ||
-    P.alive.some((a) => a) || ripples.some((m) => m.visible);
+  return U.uFlare.value > 0.02 || U.uAbsorb.value > 0.02 || pending.length > 0 || streamsAlive ||
+    shells.some((m) => m.visible);
 }
 
 function frame(now) {
   requestAnimationFrame(frame);
   if (now - lastFrame < (busy() ? ACTIVE_MS : IDLE_MS) - 2) return;
   lastFrame = now;
-  const dt = Math.min(clock.getDelta(), 0.1);
+  tick(Math.min(clock.getDelta(), 0.1));
+}
+
+function tick(dt) {
   const t = (U.uTime.value += dt);
 
   U.uBreath.value = 0.5 + 0.5 * Math.sin((t * Math.PI * 2) / 6); // one breath every 6 s
@@ -547,9 +743,21 @@ function frame(now) {
   U.uPower.value += (powerTarget - U.uPower.value) * Math.min(dt * 2, 1);
   if (U.uFlare.value < 0.02) U.uFlareColor.value.lerp(C.hot, dt * 2);
 
+  // Camera drifts around the core: a full lap every ~3.5 minutes, gently bobbing in height.
+  const az = t * 0.03, el = 0.28 + 0.1 * Math.sin(t * 0.045);
+  camera.position.set(Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el)).multiplyScalar(CAM_DIST);
+  camera.lookAt(0, 0, 0);
+  dust.rotation.y = t * 0.004;
+
+  const spin = (1 + U.uFlare.value * 3) * U.uPower.value;
   core.rotation.y += dt * 0.08;
-  const spin = 1 + U.uFlare.value * 3;
-  for (const r of rings) r.rotation.z += r.userData.speed * dt * spin * U.uPower.value;
+  for (const g of gyros) {
+    g.rotation.x += g.userData.spin[0] * dt * spin;
+    g.rotation.y += g.userData.spin[1] * dt * spin;
+    g.rotation.z += g.userData.spin[2] * dt * spin;
+  }
+  hudGroup.quaternion.copy(camera.quaternion);
+  for (const r of hudRings) r.rotation.z += r.userData.speed * dt * spin;
 
   // Gauges ease toward the latest stats.
   const dpmU = dpmGauge.material.uniforms.uFill, qU = queueGauge.material.uniforms.uFill;
@@ -557,16 +765,22 @@ function frame(now) {
   qU.value += (0.5 + queueTarget * 0.5 - qU.value) * Math.min(dt * 3, 1);
   queueGauge.material.uniforms.uColor.value.copy(queueTarget > 0.8 ? C.alert : C.cyan);
 
-  for (const m of ripples) {
-    const d = m.userData;
-    if (d.t >= 1) { m.visible = false; continue; }
-    d.t += dt / d.dur;
-    if (d.t < 0) continue;
-    const e = 1 - Math.pow(1 - Math.min(d.t, 1), 3);
-    m.visible = true;
-    m.scale.setScalar(1 + e * (d.max - 1));
-    m.material.uniforms.uOpacity.value = (1 - e) * 0.9 * (d.strength ?? 1);
-  }
+  // Moons orbit; they swell briefly when their source sends data. Labels follow them on screen.
+  moonNames.forEach((name, i) => {
+    const m = MOONS[name];
+    const p = moonAt(name, t, moonPositions[name]);
+    moonPos.set([p.x, p.y, p.z], i * 3);
+    m.activity *= Math.exp(-dt / 0.9);
+    moonSize[i] = (10 + m.activity * 8) * (0.85 + 0.15 * U.uBreath.value);
+    proj.copy(p).multiplyScalar(system.scale.x).project(camera);
+    const label = moonLabels[name];
+    label.style.transform = `translate(${((proj.x + 1) / 2) * size.w + 9}px, ${((1 - proj.y) / 2) * size.h - 6}px)`;
+    label.style.opacity = proj.z < 1 ? (0.45 + Math.min(m.activity, 1) * 0.55).toFixed(2) : "0";
+  });
+  moonGeo.attributes.position.needsUpdate = true;
+  moonGeo.attributes.aSize.needsUpdate = true;
+
+  updateWaves(dt);
 
   // Launch at most ~14 packets per second.
   launchBudget = Math.min(launchBudget + dt * 14, 3);
@@ -574,8 +788,15 @@ function frame(now) {
     launch(pending.shift());
     launchBudget -= 1;
   }
-  updateStreams(dt);
+  streamsAlive = updateStreams(dt);
 
   composer.render(dt);
 }
-requestAnimationFrame(frame);
+
+// ?capture: no real-time loop; each step() advances a fixed dt, so recordings are smooth
+// however slowly the browser renders (used to make docs/core.gif).
+if (new URLSearchParams(location.search).has("capture")) {
+  window.clefCore = { onEvent, step: tick };
+} else {
+  requestAnimationFrame(frame);
+}

@@ -38,12 +38,13 @@ decisions: about **320 ms per decision** on an RTX 3060 laptop GPU, and 200+ dec
 | **Core** | Every event above | Nothing: it visualizes the decisions as they happen |
 | *(no panel)* | GPU, CPU, RAM, fans, battery | Is something actually wrong? Alerts only on sustained problems, pushed to the phone |
 
-<p align="center"><img src="docs/core.gif" width="640" alt="Clef core: data streams in from each source's side, and each decision flares and ripples in its color"></p>
+<p align="center"><img src="docs/core.gif" width="520" alt="Clef core: data streams in from each source's side, and each decision flares and ripples in its color"></p>
 
-The core is Three.js with custom shaders: a plasma core, HUD rings, and gauges for decisions/min and queue depth.
-Data streams in as particles from the side facing its source panel. Each real decision makes the core flare and
-ripple in the source's color, and items that make it onto the dashboard stream back out to their panel. With no
-events it only breathes; there's no fake animation loop.
+The core is a small Three.js scene in space: a plasma core with an atmosphere glow inside a Keplerian accretion
+disk (thousands of particles, inner ones orbit faster), gyroscope rings, a starfield and faint nebula, and one
+orbiting moon per source (mail, news, jobs, system). Data streams leave the source's moon and arc into the core.
+Each real decision fires a shockwave sphere and a disk ripple in the source's color, and items that make it onto
+the dashboard stream back out to their moon. Without events it only breathes while the camera drifts.
 
 ### Job watcher
 
