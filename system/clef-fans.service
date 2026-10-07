@@ -1,0 +1,22 @@
+[Unit]
+Description=Clef fan reader (Clevo fan duty -> /run/clef/fans.json)
+After=systemd-modules-load.service
+
+[Service]
+ExecStart=/usr/bin/python3 /usr/local/lib/clef/clef-fans.py
+RuntimeDirectory=clef
+RuntimeDirectoryMode=0755
+Restart=always
+RestartSec=5
+# Locked down: it can read one device and write one directory, nothing else.
+DevicePolicy=closed
+DeviceAllow=/dev/tuxedo_io r
+ProtectSystem=strict
+ProtectHome=yes
+PrivateNetwork=yes
+PrivateTmp=yes
+NoNewPrivileges=yes
+ReadWritePaths=/run/clef
+
+[Install]
+WantedBy=multi-user.target

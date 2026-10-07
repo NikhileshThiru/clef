@@ -14,8 +14,9 @@ ingest (HN, RSS, Google News, Finnhub, ...) ─▶ priority queue ─▶ Clef-fl
 |---|---|---|
 | `clef-llama` | llama-server with Clef-flash Q4_K_M | 127.0.0.1:8090 |
 | `clefd` | Python backend: ingest, decision queue, web UI | 127.0.0.1:8077 |
+| `clef-fans` | root helper: Clevo fan duty → `/run/clef/fans.json` (system service, read-only ioctls) | – |
 
-Both are systemd **user** services: start at boot (linger is on), restart on crash.
+`clef-llama` and `clefd` are systemd **user** services: start at boot (linger is on), restart on crash.
 
 ```bash
 systemctl --user status clefd clef-llama     # health
@@ -30,6 +31,15 @@ Open the dashboard at http://localhost:8077. From the Mac: `ssh -L 8077:localhos
 Edit `config/sources.toml`. It reloads on save, no restart needed: add or remove RSS feeds and Google News
 queries, change the reader profile Clef filters for, or tune `min_relevance`.
 For Finnhub market news, add `FINNHUB_API_KEY=...` to `.env` (free key at finnhub.io) and restart `clefd`.
+
+## Vitals and health alerts
+
+`clefd` samples GPU (NVML), CPU, RAM, disk, network, battery and fans every second. Every 60 s Clef gets
+plain-language observations (code does the math and tags anything outside normal ranges) and decides whether
+something is actually wrong. An alert needs two "wrong" checks in a row and clears after three clean ones;
+a few hard limits (GPU ≥92°C for a minute, disk ≥95%, llama-server down >2 min) alert regardless.
+Fan speed is duty % only: the Clevo interface on this chassis doesn't report RPM.
+`sudo ./scripts/setup-fans.sh` installs the fan reader.
 
 ## Model setup (one time)
 

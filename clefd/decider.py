@@ -8,6 +8,7 @@ and broadcast so the UI can react to the real decision as it happens.
 import asyncio
 import itertools
 import time
+import traceback
 from collections import deque
 from dataclasses import dataclass
 from typing import Callable
@@ -105,7 +106,13 @@ class Decider:
             self.queued.discard(item_id)
 
             item["questions"] = questions
-            verdict = spec.interpret(item, resp["answers"])
+            try:
+                verdict = spec.interpret(item, resp["answers"])
+            except Exception:
+                # A bug in one source's interpreter must never stall the whole queue.
+                print(f"[decider] interpret failed for {item_id}:\n{traceback.format_exc()}", flush=True)
+                db.mark_error(item_id)
+                continue
             tokens = resp.get("usage", {}).get("input_tokens", 0)
             db.save_decision(item_id, item["source"], label=verdict["label"], confidence=verdict["confidence"],
                              score=verdict.get("score"), flag=verdict.get("flag"), answers=resp["answers"],

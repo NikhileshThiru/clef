@@ -9,7 +9,6 @@ import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
-import { esc } from "../util.js";
 
 const body = document.getElementById("core-body");
 const css = getComputedStyle(document.documentElement);
@@ -478,7 +477,7 @@ export function onEvent(ev) {
     if (ev.t === "hello" && ev.last) {
       const col = ev.last.show ? C.src[ev.last.source] ?? C.cyan : C.accent;
       typePath(ev.last.path, col);
-      $("#hud-title").textContent = esc(ev.last.title.slice(0, 80));
+      $("#hud-title").textContent = ev.last.title.slice(0, 80);
     }
   }
 }

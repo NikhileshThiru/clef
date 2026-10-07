@@ -10,6 +10,7 @@ dependencies = [
   "httpx>=0.27",
   "feedparser>=6.0",
   "rapidfuzz>=3.10",
+  "nvidia-ml-py>=13.615.71",
 ]
 
 [build-system]
