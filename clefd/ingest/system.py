@@ -190,6 +190,9 @@ def hard_limits(now: dict) -> tuple[str, str] | None:
     ram = _window("ram_used", 120)
     if ram and now.get("ram_total") and min(ram) / now["ram_total"] >= 0.95:
         return "memory", f"RAM {ram[-1]:.1f}/{now['ram_total']:.1f} GB for 2 minutes"
+    ac = _window("ac", 180)
+    if len(ac) >= 170 and not any(ac):
+        return "battery", f"On battery for {len(ac) // 60}+ min, {now.get('battery')}% (power cut or unplugged?)"
     if health.llama_down_since and time.time() - health.llama_down_since > 120:
         return "clef_service", f"llama-server down for {(time.time() - health.llama_down_since) / 60:.0f} min"
     return None

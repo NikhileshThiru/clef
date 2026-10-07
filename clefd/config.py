@@ -50,3 +50,4 @@ class TomlFile:
 
 
 sources = TomlFile("sources.toml")
+mail = TomlFile("mail.toml")

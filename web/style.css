@@ -43,8 +43,9 @@ a { color: inherit; text-decoration: none; }
 
 .grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  grid-template-rows: 1fr 1fr;
+  /* minmax(0, ...) so long unwrapped text can't force a column wider than half the screen */
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
   gap: 14px var(--gap);
   height: 100vh;
   padding: 10px var(--gap) var(--gap);  /* top room for the titles cut into the border */
@@ -298,3 +299,29 @@ a { color: inherit; text-decoration: none; }
 
 .status-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--alert); }
 .status-dot.up { background: var(--cyan-bright); box-shadow: 0 0 6px var(--cyan); }
+
+/* ---------------------------------------------------------------- mail */
+
+.group {
+  color: var(--accent);
+  font-size: 10px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  padding: 6px 6px 2px;
+}
+.group:first-child { padding-top: 0; }
+.group span { color: var(--fg-dim); }
+
+.mail-top { display: flex; gap: 8px; align-items: baseline; white-space: nowrap; overflow: hidden; }
+.mail-top .sender { color: var(--fg-bright); font-weight: bold; max-width: 32%; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; }
+.mail-top .subject { color: var(--fg); overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.mail-top .grow { flex: 1; }
+.mail-top .age { color: var(--fg-dim); font-size: 11px; flex-shrink: 0; }
+.mail-top .ico { color: var(--cyan); flex-shrink: 0; }
+.snippet { color: var(--fg-dim); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.mail-row.done { opacity: 0.45; }
+.mail-row.done .sender { font-weight: normal; }
+
+code { color: var(--cyan); background: var(--bg-light); padding: 1px 6px; border-radius: 3px; }
+.dim { color: var(--muted); }

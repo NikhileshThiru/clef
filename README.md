@@ -37,7 +37,7 @@ For Finnhub market news, add `FINNHUB_API_KEY=...` to `.env` (free key at finnhu
 `clefd` samples GPU (NVML), CPU, RAM, disk, network, battery and fans every second. Every 60 s Clef gets
 plain-language observations (code does the math and tags anything outside normal ranges) and decides whether
 something is actually wrong. An alert needs two "wrong" checks in a row and clears after three clean ones;
-a few hard limits (GPU ≥92°C for a minute, disk ≥95%, llama-server down >2 min) alert regardless.
+a few hard limits (GPU ≥92°C for a minute, disk ≥95%, on battery 3+ min, llama-server down >2 min) alert regardless.
 Fan speed is duty % only: the Clevo interface on this chassis doesn't report RPM.
 `sudo ./scripts/setup-fans.sh` installs the fan reader.
 

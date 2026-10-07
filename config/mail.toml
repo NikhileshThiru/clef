@@ -1,0 +1,10 @@
+# Gmail triage. Reloads on save.
+
+[profile]
+# Given to Clef with every email so it knows whose inbox it is triaging.
+reader = "CS sophomore at Georgia Tech (graduating May 2028) looking for summer 2027 SWE / AI / ML internships. Cares about classes, professors and TAs, GT offices, recruiters and interviews, deadlines, money and account security."
+
+[gmail]
+poll_seconds = 60
+lookback_days = 3        # how far back the panel looks
+min_confidence = 0.0     # raise to hide low-confidence fyi items

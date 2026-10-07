@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from . import bus, config
 from .decider import decider
-from .ingest import news, system
+from .ingest import mail, news, system
 
 
 @asynccontextmanager
@@ -19,6 +19,7 @@ async def lifespan(app: FastAPI):
         decider.run(), decider.health_loop(), decider.stats_loop(),
         news.run(), news.prune_loop(),
         system.sample_loop(), system.check_loop(),
+        mail.run(), mail.prune_loop(),
     )]
     for t in tasks:
         t.add_done_callback(_crash_on_task_death)
@@ -51,6 +52,11 @@ async def index():
 @app.get("/api/news")
 async def api_news():
     return news.panel()
+
+
+@app.get("/api/mail")
+async def api_mail():
+    return mail.panel()
 
 
 @app.get("/api/vitals")
