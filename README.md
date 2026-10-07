@@ -4,7 +4,7 @@
 inbox, filters market / AI / startup news, watches 2,300+ company job boards for internships, and pushes matches
 to my phone within minutes of them going live. Everything runs on one always-on laptop, and every API it uses is free.
 
-![Clef dashboard: mail triage, internship matches, filtered news, and the live decision core](docs/dashboard.png)
+![Clef dashboard: mail triage, internship matches, filtered news, and the live decision core](docs/clef-dashboard.png)
 
 <sub>Mail shows demo data; the news and job matches are real output from the running system.</sub>
 
@@ -38,7 +38,7 @@ decisions: about **320 ms per decision** on an RTX 3060 laptop GPU, and 200+ dec
 | **Core** | Every event above | Nothing: it visualizes the decisions as they happen |
 | *(no panel)* | GPU, CPU, RAM, fans, battery | Is something actually wrong? Alerts only on sustained problems, pushed to the phone |
 
-<p align="center"><img src="docs/core.gif" width="520" alt="Clef core: data streams in from each source's side, and each decision flares and ripples in its color"></p>
+<p align="center"><img src="docs/clef-core-3d.gif" width="520" alt="Clef core: data streams in from each source's side, and each decision flares and ripples in its color"></p>
 
 The core is a small Three.js scene in space: a plasma core with an atmosphere glow inside a Keplerian accretion
 disk (thousands of particles, inner ones orbit faster), gyroscope rings, a starfield and faint nebula, and one
