@@ -36,3 +36,10 @@ export function debounce(fn, ms) {
   let t;
   return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
 }
+
+// Mark a job match applied (it leaves the lists everywhere) or undo that.
+export function setApplied(id, applied) {
+  return fetch("/api/jobs/applied", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, applied }),
+  });
+}

@@ -1,8 +1,8 @@
 """The decision loop: one queue, one worker, one llama-server.
 
 llama-server evaluates a single sequence per batch, so a serial worker is the
-fastest it gets. Items wait in a priority queue (mail before jobs before
-system before news, newest first within a source) and every answer is saved
+fastest it gets. Items wait in a priority queue (jobs before system
+before news, newest first within a source) and every answer is saved
 and broadcast so the UI can react to the real decision as it happens.
 """
 import asyncio
@@ -18,7 +18,7 @@ import httpx
 
 from . import bus, config, db
 
-PRIORITY = {"mail": 0, "jobs": 1, "system": 2, "news": 3}
+PRIORITY = {"jobs": 0, "system": 1, "news": 2}
 # Longest any single string in a state may be on the first try. A request must fit
 # llama-server's ubatch (2048 tokens); if it doesn't, the error says by how much.
 MAX_STATE_CHARS = 5000

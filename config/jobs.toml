@@ -22,6 +22,14 @@ min_us = 0.5            # P(the role can be done in the US)
 min_internship = 0.75   # P(a real internship/co-op: not full-time, new grad, or an on-campus student job)
 min_bachelors = 0.4     # P(open to students pursuing a bachelor's; rejects PhD/master's-only and new grad)
 
+[ranking]
+# Every match is listed. "Today's best" sorts by Clef's fit score (0-4) plus a company bonus,
+# and only top-company matches with a good fit push to the phone.
+push_min_fit = 2.5      # 0 poor, 1 weak, 2 okay, 3 good, 4 great
+top_bonus = 1.5         # added to fit for top companies
+startup_bonus = 0.75    # other active YC startups
+startup_min_team = 20   # Bay Area YC startups this big count as top
+
 [freshness]
 board_max_age_hours = 24      # boards with a posting timestamp: ignore anything older
 simplify_max_age_hours = 6    # widen to 24 if it feels too quiet
@@ -37,3 +45,33 @@ simplify_poll_seconds = 300
 greenhouse = []
 lever = []
 ashby = []
+
+# Top companies, ranked alongside each other. Matched by exact name (Inc/LLC/Group/US... ignored)
+# or by job-board name, so list spelling variants separately. YC companies that YC marks as
+# top, or that have 20+ people in the Bay Area, count as top without being listed here.
+[companies]
+top = [
+  # big tech
+  "Google", "Alphabet", "DeepMind", "Google DeepMind", "Meta", "Meta Platforms", "Apple", "Microsoft", "Amazon", "Amazon Web Services", "Netflix",
+  "Nvidia", "Tesla", "SpaceX", "Uber", "Lyft", "Airbnb", "Salesforce", "Adobe", "Oracle", "IBM", "Intel", "AMD",
+  "Qualcomm", "Cisco", "LinkedIn", "Snap", "Pinterest", "Reddit", "Spotify", "Dropbox", "Shopify", "Atlassian",
+  "Block", "Square", "PayPal", "Intuit", "ServiceNow", "Workday", "Snowflake", "Databricks", "Palantir",
+  "Cloudflare", "Datadog", "MongoDB", "Twilio", "DoorDash", "Instacart", "Roblox", "Bloomberg", "Waymo", "TikTok", "ByteDance",
+  # AI labs and AI-first
+  "OpenAI", "Anthropic", "xAI", "Mistral AI", "Cohere", "Perplexity", "Scale AI", "Hugging Face", "Character AI",
+  "Runway", "Midjourney", "ElevenLabs", "Glean", "Harvey", "Cursor", "Anysphere", "Cognition", "Sierra",
+  "Together AI", "Fireworks AI", "Baseten", "Modal", "Pinecone", "Weights & Biases", "LangChain", "Replit",
+  "Physical Intelligence", "Figure", "Skild AI", "Anduril", "Shield AI", "Applied Intuition", "Zoox", "Aurora",
+  "Nuro", "Cerebras", "Groq", "SambaNova", "Etched", "CoreWeave", "Lambda", "Crusoe",
+  # quant and trading
+  "Jane Street", "Jane Street Capital", "Citadel", "Citadel Securities", "Two Sigma", "Two Sigma Investments", "Hudson River Trading", "Jump Trading", "DE Shaw", "D. E. Shaw",
+  "Optiver", "IMC Trading", "IMC", "Susquehanna", "SIG", "Five Rings", "Tower Research", "Tower Research Capital", "Virtu", "DRW",
+  "Akuna Capital", "Akuna", "Old Mission", "Belvedere Trading", "Chicago Trading Company", "Point72", "Millennium",
+  "Bridgewater", "AQR", "Renaissance Technologies", "Squarepoint", "XTX Markets", "Radix Trading",
+  # fintech, infra and strong startups
+  "Stripe", "Ramp", "Brex", "Plaid", "Robinhood", "Coinbase", "Chime", "Mercury", "Rippling", "Gusto", "Deel",
+  "Figma", "Notion", "Linear", "Vercel", "Supabase", "Retool", "Airtable", "Asana", "Canva", "Discord",
+  "Duolingo", "Faire", "Flexport", "Samsara", "Verkada", "Benchling", "HashiCorp", "Confluent", "GitLab",
+  "GitHub", "Grafana Labs", "Temporal", "Neon", "PlanetScale", "Sentry", "PostHog", "Watershed", "Hebbia",
+  "Abridge", "Navan", "Wiz", "Snyk", "Okta", "Zscaler", "CrowdStrike", "Palo Alto Networks",
+]

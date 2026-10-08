@@ -1,12 +1,12 @@
 # Clef
 
-**A local AI decision engine for my homelab.** An open-source decision model running on a laptop GPU triages my
-inbox, filters market / AI / startup news, watches 2,300+ company job boards for internships, and pushes matches
-to my phone within minutes of them going live. Everything runs on one always-on laptop, and every API it uses is free.
+**A local AI decision engine for my homelab.** An open-source decision model running on a laptop GPU watches 2,300+
+company job boards for internships, ranks each day's matches, pushes the best ones to my phone within minutes of
+them going live, and filters market / AI / startup news. Everything runs on one always-on laptop, and every API it uses is free.
 
-![Clef dashboard: mail triage, internship matches, filtered news, and the live decision core](docs/clef-dashboard.png)
+![Clef dashboard: filtered news, today's best internship matches, and the live decision core](docs/clef-dashboard-v2.png)
 
-<sub>Mail shows demo data; the news and job matches are real output from the running system.</sub>
+<sub>Real output from the running system.</sub>
 
 ## Why a decision model
 
@@ -32,17 +32,16 @@ decisions: about **320 ms per decision** on an RTX 3060 laptop GPU, and 200+ dec
 
 | Panel | Source | What Clef decides |
 |---|---|---|
-| **Mail** | Gmail API (read-only) | `read_today` / `fyi` / `ignore`, expects a reply?, deadline in the next 3 days?, one-time code? |
-| **Jobs** | ~2,350 Greenhouse, Lever, Ashby, SmartRecruiters and Workday boards + SimplifyJobs | Internship or not, role (SWE, AI/ML, data, infra, quant, frontend…), term, US, bachelor's eligible |
+| **Jobs** | ~2,350 Greenhouse, Lever, Ashby, SmartRecruiters and Workday boards + SimplifyJobs | Internship or not, role (SWE, AI/ML, data, infra, quant, frontend…), term, US, bachelor's eligible, and how well the work fits me (0–4) |
 | **News** | Hacker News, RSS, Google News, Finnhub | Topic, relevance, breaking, and whether it's the same story as an earlier headline |
 | **Core** | Every event above | Nothing: it visualizes the decisions as they happen |
 | *(no panel)* | GPU, CPU, RAM, fans, battery | Is something actually wrong? Alerts only on sustained problems, pushed to the phone |
 
-<p align="center"><img src="docs/clef-core-3d.gif" width="520" alt="Clef core: data streams in from each source's side, and each decision flares and ripples in its color"></p>
+<p align="center"><img src="docs/clef-core-3d-v2.gif" width="520" alt="Clef core: data streams in from each source's side, and each decision flares and ripples in its color"></p>
 
 The core is a small Three.js scene in space: a plasma core with an atmosphere glow inside a Keplerian accretion
 disk (thousands of particles, inner ones orbit faster), gyroscope rings, a starfield and faint nebula, and one
-orbiting moon per source (mail, news, jobs, system). Data streams leave the source's moon and arc into the core.
+orbiting moon per source (news, jobs, system). Data streams leave the source's moon and arc into the core.
 Each real decision fires a shockwave sphere and a disk ripple in the source's color, and items that make it onto
 the dashboard stream back out to their moon. Without events it only breathes while the camera drifts.
 
@@ -56,20 +55,25 @@ The point is to apply in the first few minutes, so only sources that show new po
 - **SimplifyJobs `listings.json`** (refreshes every ~30 min) as a catch-all for custom career sites.
 - **Only new postings alert.** The first look at a board records what's there silently; after that a posting alerts
   only if it's new since the last check *and* fresh by its own timestamp.
-- Matches push to the phone through [ntfy](https://ntfy.sh) (tap opens the posting), show in the Jobs panel, and on
-  `/jobs`, a plain list for any other device on the tailnet.
+- **Two lists.** *Latest* is every match, newest first, for applying in the first minutes. *Today's best* sorts the
+  day's matches by Clef's fit score plus a company bonus: a hand-kept list of top companies (big tech, quant, AI
+  labs, strong startups) and YC's public directory, where established Bay Area YC startups rank alongside big tech.
+- **Applied = gone.** A checkbox on each match marks it applied and removes it from both lists, on the dashboard
+  and on `/jobs`, live (with undo). What's left is only what I still need to apply to.
+- **Only the best buzz the phone.** Top-company matches with a good fit push through [ntfy](https://ntfy.sh) (tap
+  opens the posting). Everything else is in the Jobs panel and on `/jobs`, a two-column page for any other device
+  on the tailnet.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
     subgraph Ingest
-        G[Gmail API]
         B[2,350 job boards<br/>+ Simplify]
         N[HN · RSS · Google News]
         S[sensors · NVML]
     end
-    G & B & N & S --> Q["priority queue<br/>mail, jobs, system, news"]
+    B & N & S --> Q["priority queue<br/>jobs, system, news"]
     Q --> L["llama-server<br/>Clef-flash Q4_K_M · RTX 3060"]
     L --> D[(SQLite)]
     D --> W[WebSocket]
@@ -110,8 +114,8 @@ alerts need two consecutive bad checks. A few hard limits fire regardless.
 
 **Things that broke in production:** a single interpreter exception silently killed the decision loop (fixed with
 per-item isolation, plus the process exits so systemd restarts it if a background loop ever dies); on battery the
-GPU is power-capped and decisions slowed 25×, so timeouts and per-item retry caps matter; emails tokenize at
-2.8 to 3.7 chars/token, so oversized states are shrunk by the exact overshoot the server reports.
+GPU is power-capped and decisions slowed 25×, so timeouts and per-item retry caps matter; text tokenizes at very
+different rates, so oversized states are shrunk by the exact overshoot the server reports.
 
 ## Setup
 
@@ -143,9 +147,6 @@ ln -s "$PWD/bin/clef" ~/.local/bin/clef
 
 The systemd units assume the repo lives at `~/projects/clef`; edit `WorkingDirectory`/`ExecStart` if not.
 
-- **Gmail:** create a Google Cloud project, enable the Gmail API, create a *Desktop app* OAuth client, save its
-  JSON as `~/.local/share/clef/gmail_client.json`, then run `uv run python -m clefd.gmail_auth`. An unpublished
-  ("Testing") app's login expires every 7 days, so Clef pushes a reminder the day before.
 - **Finnhub** (optional): `FINNHUB_API_KEY=...` in `.env`.
 - **Fan readings** (optional, Clevo/TUXEDO chassis): `sudo ./scripts/setup-fans.sh` installs a sandboxed root
   helper that only reads fan duty.
@@ -155,7 +156,7 @@ The systemd units assume the repo lives at `~/projects/clef`; edit `WorkingDirec
 
 ```bash
 clef            # open the dashboard (starts the services if they're down)
-clef status     # services, model, queue, health, gmail
+clef status     # services, model, queue, health
 clef restart    # restart clefd + clef-llama
 clef logs       # follow logs
 ```
@@ -170,8 +171,7 @@ All config files reload on save.
 | File | What's in it |
 |---|---|
 | `config/sources.toml` | News feeds, Google News queries, the reader profile, relevance threshold |
-| `config/mail.toml` | Mail profile, lookback, read-today confidence cutoff, stale-code window |
-| `config/jobs.toml` | Candidate profile, accepted roles and terms, thresholds, freshness windows, poll cycles, extra boards |
+| `config/jobs.toml` | Candidate profile, accepted roles and terms, thresholds, ranking and push cutoff, top companies, freshness windows, poll cycles, extra boards |
 | `.env` | `NTFY_TOPIC` (secret), optional `FINNHUB_API_KEY` |
 
 `CLEF_DEMO=1` serves an existing database without polling anything (that's how the screenshot was made).
@@ -180,7 +180,7 @@ All config files reload on save.
 
 ```
 clefd/            backend: app.py (FastAPI + WebSocket), decider.py (queue → llama-server), db.py
-  ingest/         news.py, mail.py, jobs.py, system.py: each defines its questions + interpreter
+  ingest/         news.py, jobs.py, system.py: each defines its questions + interpreter; companies.py tiers
 web/              dashboard (index.html, panels/*.js, style.css), jobs.html, vendored three.js
 config/           TOML config
 systemd/          clef-llama + clefd user units
@@ -195,6 +195,7 @@ bin/clef          launcher
 [Clef-Flash GGUF](https://huggingface.co/ggml-org/Clef-Flash-GGUF) ·
 [Three.js](https://threejs.org) ·
 [SimplifyJobs](https://github.com/SimplifyJobs/Summer2027-Internships) ·
+[yc-oss](https://github.com/yc-oss/api) ·
 [ntfy](https://ntfy.sh) ·
 [Hacker News API](https://github.com/HackerNews/API)
 

@@ -27,6 +27,7 @@ import httpx
 from .. import bus, config, db
 from ..notify import ntfy
 from ..decider import Spec, decider, register
+from .companies import directory, refresh_loop as companies_loop
 
 SIMPLIFY_URL = "https://raw.githubusercontent.com/SimplifyJobs/Summer2027-Internships/dev/.github/scripts/listings.json"
 UA = "Mozilla/5.0 (X11; Linux x86_64) clef-jobwatch/0.1 (personal internship alerts)"
@@ -37,6 +38,10 @@ HOT_DAYS = 120
 ALERT_KEEP_DAYS = 14
 
 db.conn.executescript("""
+CREATE TABLE IF NOT EXISTS job_applied (
+    id TEXT PRIMARY KEY,                -- items.id of the match
+    at REAL NOT NULL
+);
 CREATE TABLE IF NOT EXISTS job_boards (
     key        TEXT PRIMARY KEY,        -- "<ats>:<name>"
     company    TEXT,
@@ -441,6 +446,13 @@ QUESTIONS = {
     "bachelors": {"type": "noul",
                   "instructions": "Is it open to students currently pursuing a bachelor's degree "
                                   "(not PhD-only, master's-only, or for people who have already graduated)?"},
+    "fit": {"type": "score",
+            "instructions": "How well does the actual work in this internship fit the candidate's skills and interests?",
+            "criteria": ["poor: a different field (mechanical, civil, chemistry, sales, quality, construction, etc.)",
+                         "weak: engineering-adjacent but not software, data or AI work",
+                         "okay: some coding or analysis, but mostly IT, support, business analysis or reporting",
+                         "good: real software engineering, data science, ML or infrastructure work",
+                         "great: core SWE, AI/ML, infra or quant engineering that closely matches the candidate's background"]},
 }
 
 
@@ -480,13 +492,17 @@ def interpret(item: dict, a: dict) -> dict:
     }
     match = all(checks.values())
     failed = [k for k, ok in checks.items() if not ok]
+    fit = a["fit"]["score"]
     if match:
-        asyncio.get_running_loop().create_task(notify_match(item, role, term))
+        tier, tag = directory.classify(item["origin"], item["meta"].get("board", ""))
+        rank = config.jobs.get().get("ranking", {})
+        if tier == "top" and fit >= rank.get("push_min_fit", 2.5):
+            asyncio.get_running_loop().create_task(notify_match(item, term, tag))
         bus.publish({"t": "jobs_changed"})
     return {
         "label": "match" if match else "skip",
         "confidence": a["role"]["probabilities"][role],
-        "score": a["internship"]["noul"],
+        "score": fit,
         "flag": 1.0 if match else 0.0,
         "path": f"JOBS > {role.upper()} > {'MATCH' if match else 'SKIP ' + failed[0].upper()}",
         "show": match,
@@ -502,29 +518,55 @@ TERM_LABEL = {"spring_2027": "Spring '27", "summer_2027": "Summer '27", "fall_20
               "year_2028_or_later": "2028+", "unclear": ""}
 
 
-async def notify_match(item: dict, role: str, term: str) -> None:
+async def notify_match(item: dict, term: str, tag: str) -> None:
     m = item["meta"]
     when = TERM_LABEL.get(term, "")
     await ntfy(f"{item['origin']}: {item['title']}",
-               " · ".join(x for x in (when, m.get("location"), f"posted {_ago(item['published'])}", m.get("via")) if x),
+               " · ".join(x for x in (when, tag, m.get("location"), f"posted {_ago(item['published'])}") if x),
                click=item["url"], tags=["briefcase"], priority=4)
 
 
 # ---------------------------------------------------------------- panel
 
 def matches(hours: float = 48) -> list[dict]:
+    """Newest first. Each match carries its company tier and a rank for the "today's best" list."""
     rows = db.conn.execute(
-        "SELECT id, title, origin, url, published, ingested, meta, answers FROM items "
+        "SELECT i.id, title, origin, url, published, ingested, meta, answers, a.at AS applied FROM items i "
+        "LEFT JOIN job_applied a ON a.id = i.id "
         "WHERE source='jobs' AND label='match' AND ingested > ? ORDER BY ingested DESC",
         (time.time() - hours * 3600,)).fetchall()
+    cfg = config.jobs.get().get("ranking", {})
+    bonus = {"top": cfg.get("top_bonus", 1.5), "startup": cfg.get("startup_bonus", 0.75)}
     out = []
     for r in rows:
         meta, ans = json.loads(r["meta"]), json.loads(r["answers"] or "{}")
+        tier, tag = directory.classify(r["origin"], meta.get("board", ""))
+        fit = ans.get("fit", {}).get("score")
         out.append({"id": r["id"], "company": r["origin"], "title": r["title"], "url": r["url"],
                     "location": meta.get("location", ""), "via": meta.get("via", ""),
                     "posted": r["published"], "found": r["ingested"],
-                    "role": ans.get("role", {}).get("choice"), "term": TERM_LABEL.get(ans.get("term", {}).get("choice"), "")})
+                    "role": ans.get("role", {}).get("choice"), "term": TERM_LABEL.get(ans.get("term", {}).get("choice"), ""),
+                    "tier": tier, "tag": tag, "fit": fit, "applied": r["applied"],
+                    "rank": round((2.0 if fit is None else fit) + bonus.get(tier, 0), 3),
+                    "pushed": tier == "top" and fit is not None and fit >= cfg.get("push_min_fit", 2.5)})
     return out
+
+
+def set_applied(item_id: str, applied: bool) -> bool:
+    if not db.conn.execute("SELECT 1 FROM items WHERE id=? AND source='jobs' AND label='match'", (item_id,)).fetchone():
+        return False
+    if applied:
+        db.conn.execute("INSERT OR IGNORE INTO job_applied (id, at) VALUES (?, ?)", (item_id, time.time()))
+    else:
+        db.conn.execute("DELETE FROM job_applied WHERE id=?", (item_id,))
+    bus.publish({"t": "jobs_changed"})
+    return True
+
+
+def today_start() -> float:
+    """Local midnight (the laptop's timezone), where "today's best" starts."""
+    t = time.localtime()
+    return time.mktime((t.tm_year, t.tm_mon, t.tm_mday, 0, 0, 0, 0, 0, -1))
 
 
 def status() -> dict:
@@ -535,8 +577,9 @@ def status() -> dict:
     today = db.conn.execute("SELECT COUNT(*) FROM items WHERE source='jobs' AND ingested > ?",
                             (time.time() - 86400,)).fetchone()[0]
     return {"boards": counts, "seeded": seeded, "last_sweep": watch.last_sweep, "checked_24h": today,
+            "today_start": today_start(),
             "ntfy": bool(os.environ.get("NTFY_TOPIC"))}
 
 
 def run_tasks() -> list:
-    return [simplify_loop(), sweep_loop("hot"), sweep_loop("cold")]
+    return [simplify_loop(), sweep_loop("hot"), sweep_loop("cold"), companies_loop()]

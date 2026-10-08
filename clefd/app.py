@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 
 from . import bus, config
 from .decider import decider
-from .ingest import jobs, mail, news, system
+from .ingest import jobs, news, system
 
 
 # CLEF_DEMO=1: serve whatever is already in the database and poll nothing (used for README screenshots).
@@ -26,8 +26,7 @@ async def lifespan(app: FastAPI):
         jobs.watch.last_sweep = {"hot": time.time() - 70, "cold": time.time() - 400}
     else:
         decider.restore_pending()
-        loops += [decider.run(), decider.stats_loop(), news.run(), news.prune_loop(), system.sample_loop(), system.check_loop(),
-                  mail.run(), mail.prune_loop(), mail.reminder_loop(), *jobs.run_tasks()]
+        loops += [decider.run(), decider.stats_loop(), news.run(), news.prune_loop(), system.sample_loop(), system.check_loop(), *jobs.run_tasks()]
     tasks = [asyncio.create_task(c, name=c.__qualname__) for c in loops]
     for t in tasks:
         t.add_done_callback(_crash_on_task_death)
@@ -101,9 +100,15 @@ async def api_jobs(hours: float = 48):
     return {"matches": jobs.matches(hours), "status": jobs.status()}
 
 
-@app.get("/api/mail")
-async def api_mail():
-    return mail.panel()
+@app.post("/api/jobs/applied")
+async def api_jobs_applied(body: dict, request: Request):
+    """Mark a match applied (it leaves both lists) or undo that. JSON only, so a web page
+    can't send it cross-origin without a CORS preflight, which this app never grants."""
+    if request.headers.get("content-type", "").split(";")[0].strip() != "application/json":
+        raise HTTPException(415, "JSON only")
+    if not jobs.set_applied(str(body.get("id", "")), bool(body.get("applied", True))):
+        raise HTTPException(404, "no such match")
+    return {"ok": True}
 
 
 @app.get("/api/vitals")

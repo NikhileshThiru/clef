@@ -8,7 +8,7 @@ from . import config
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS items (
     id          TEXT PRIMARY KEY,          -- "<source>:<stable key>"
-    source      TEXT NOT NULL,             -- mail | news | jobs | system
+    source      TEXT NOT NULL,             -- news | jobs | system
     title       TEXT NOT NULL,
     url         TEXT,
     origin      TEXT,                      -- publisher / sender / company

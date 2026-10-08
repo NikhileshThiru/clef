@@ -11,8 +11,6 @@ dependencies = [
   "feedparser>=6.0",
   "rapidfuzz>=3.10",
   "nvidia-ml-py>=13.615.71",
-  "google-auth>=2.60.0",
-  "google-auth-oauthlib>=1.5.0",
 ]
 
 [build-system]

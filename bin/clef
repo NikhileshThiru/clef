@@ -83,7 +83,6 @@ status() {
     curl -sf "$URL/api/vitals" | jq -r '"health     \(if .alert then "ALERT \(.alert.subsystem): \(.alert.message)" else "nominal" end)",
       "gpu        \(.latest.gpu_util)% · \(.latest.gpu_temp)°C · VRAM \(.latest.vram_used*10|round/10)/\(.latest.vram_total) GB",
       "battery    \(.latest.battery)% \(.latest.battery_status) · health \(.latest.battery_health)%"'
-    curl -sf "$URL/api/mail" | jq -r '"gmail      \(.status)\(if .email != "" then " (\(.email))" else "" end)"'
   else
     echo "clefd      not answering on $URL"
   fi

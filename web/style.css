@@ -14,7 +14,6 @@
   --alert: #ff4f6d;
 
   /* Source colors, shared by every panel and the core's particle streams. */
-  --src-mail: #9efdf7;
   --src-news: #41f4ff;
   --src-jobs: #7cffb2;
   --src-system: #ffb86b;
@@ -46,10 +45,15 @@ a { color: inherit; text-decoration: none; }
   /* minmax(0, ...) so long unwrapped text can't force a column wider than half the screen */
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-areas: "news jobs" "news core";
   gap: 14px var(--gap);
   height: 100vh;
   padding: 10px var(--gap) var(--gap);  /* top room for the titles cut into the border */
 }
+
+#news { grid-area: news; }
+#jobs { grid-area: jobs; }
+#core { grid-area: core; }
 
 /* btop-style box: thin border with the title cut into the top edge. */
 .box {
@@ -246,6 +250,23 @@ a { color: inherit; text-decoration: none; }
 .job-row .term { color: var(--src-jobs); font-weight: bold; flex-shrink: 0; }
 .job-row.new { border-left-color: var(--src-jobs); background: linear-gradient(90deg, color-mix(in srgb, var(--src-jobs) 14%, transparent), transparent 70%); }
 .job-row.new .company { color: var(--src-jobs); }
+.box > header .lead { display: flex; gap: 0; padding: 0; }
+.tabs { display: flex; gap: 2px; pointer-events: auto; }
+.tabs button { font: inherit; font-size: 11px; color: var(--muted); background: none; border: 0; padding: 0 4px; cursor: pointer; }
+.tabs button:hover { color: var(--fg); }
+.tabs button.on { color: var(--src-jobs); }
+.job-row .pos { color: var(--muted); font-size: 11px; width: 1.6em; text-align: right; flex-shrink: 0; }
+.job-row .tier { color: var(--fg-dim); border: 1px solid color-mix(in srgb, var(--fg-dim) 40%, transparent); border-radius: 2px; padding: 0 4px; flex-shrink: 0; }
+.job-row .tier.top { color: var(--src-jobs); border-color: color-mix(in srgb, var(--src-jobs) 55%, transparent); }
+.job-row .meter { flex-shrink: 0; }
+.job-li { display: flex; align-items: flex-start; gap: 2px; }
+.job-li > a { flex: 1; min-width: 0; }
+.apply { flex-shrink: 0; width: 14px; height: 14px; margin-top: 6px; padding: 0; cursor: pointer; background: none;
+  border: 1px solid color-mix(in srgb, var(--fg-dim) 60%, transparent); border-radius: 2px; color: var(--src-jobs); font: inherit; font-size: 11px; line-height: 12px; }
+.apply:hover { border-color: var(--src-jobs); }
+.apply:hover::after { content: "✓"; }
+.jobs-foot button.undo { font: inherit; color: var(--src-jobs); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; }
+.jobs-foot .undo-msg { color: var(--src-jobs); }
 .jobs-foot { color: var(--muted); font-size: 10px; letter-spacing: 0.05em; padding: 4px 6px 0; border-top: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .jobs-wrap { display: flex; flex-direction: column; height: 100%; }
 .jobs-wrap .list { flex: 1; min-height: 0; }
@@ -256,29 +277,6 @@ a { color: inherit; text-decoration: none; }
   font-size: 11px; letter-spacing: 0.06em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: none; }
 .hud-alert.on { display: block; }
 .hud-alert b { color: var(--alert); }
-
-/* ---------------------------------------------------------------- mail */
-
-.group {
-  color: var(--accent);
-  font-size: 10px;
-  letter-spacing: 0.15em;
-  text-transform: uppercase;
-  padding: 6px 6px 2px;
-}
-.group:first-child { padding-top: 0; }
-.group span { color: var(--fg-dim); }
-
-.mail-top { display: flex; gap: 8px; align-items: baseline; white-space: nowrap; overflow: hidden; }
-.mail-top .sender { color: var(--fg-bright); font-weight: bold; max-width: 32%; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; }
-.mail-top .subject { color: var(--fg); overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.mail-top .grow { flex: 1; }
-.mail-top .age { color: var(--fg-dim); font-size: 11px; flex-shrink: 0; }
-.mail-top .ico { color: var(--cyan); flex-shrink: 0; }
-.snippet { color: var(--fg-dim); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-
-.mail-row.done { opacity: 0.45; }
-.mail-row.done .sender { font-weight: normal; }
 
 code { color: var(--cyan); background: var(--bg-light); padding: 1px 6px; border-radius: 3px; }
 .dim { color: var(--muted); }

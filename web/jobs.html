@@ -8,54 +8,148 @@
   <link rel="stylesheet" href="/static/style.css">
   <style>
     html, body { overflow: auto; font-size: 14px; }
-    main { max-width: 900px; margin: 0 auto; padding: 24px 16px 48px; }
+    main { max-width: 1400px; margin: 0 auto; padding: 24px 16px 48px; }
     h1 { font-size: 15px; color: var(--cyan); letter-spacing: 0.2em; margin: 0 0 4px; }
-    .sub { color: var(--fg-dim); font-size: 12px; margin-bottom: 20px; }
+    .sub { color: var(--fg-dim); font-size: 12px; margin-bottom: 8px; }
+    .cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 32px; }
     h2 { font-size: 11px; color: var(--accent); letter-spacing: 0.15em; text-transform: uppercase; margin: 22px 0 6px; }
-    .job { display: grid; grid-template-columns: 1fr auto; gap: 2px 16px; padding: 8px 10px; border-left: 2px solid transparent; border-radius: 3px; }
+    h2.col { color: var(--cyan); font-size: 12px; border-bottom: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); padding-bottom: 6px; }
+    h2.col span { color: var(--fg-dim); letter-spacing: 0.05em; text-transform: none; font-weight: normal; }
+    .item { display: flex; align-items: flex-start; gap: 4px; }
+    .item > a { flex: 1; min-width: 0; }
+    .apply { flex-shrink: 0; width: 16px; height: 16px; margin-top: 10px; padding: 0; cursor: pointer; background: none; font: inherit; font-size: 12px; line-height: 14px;
+      border: 1px solid color-mix(in srgb, var(--fg-dim) 60%, transparent); border-radius: 2px; color: var(--src-jobs); }
+    .apply:hover { border-color: var(--src-jobs); }
+    .apply:hover::after { content: "✓"; }
+    .done .apply::after { content: "✓"; }
+    .done .apply:hover::after { content: "×"; }
+    .done a { opacity: 0.5; }
+    details { margin-top: 28px; color: var(--fg-dim); font-size: 12px; }
+    summary { cursor: pointer; color: var(--accent); letter-spacing: 0.1em; }
+    #toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--bg-light); color: var(--fg-bright);
+      border: 1px solid color-mix(in srgb, var(--src-jobs) 60%, transparent); border-radius: 4px; padding: 8px 14px; font-size: 13px; display: none; }
+    #toast.on { display: block; }
+    #toast button { font: inherit; color: var(--src-jobs); background: none; border: 0; cursor: pointer; text-decoration: underline; margin-left: 8px; }
+    .job { display: grid; grid-template-columns: auto 1fr auto; gap: 2px 12px; padding: 8px 10px; border-left: 2px solid transparent; border-radius: 3px; }
     .job:hover { background: var(--bg-light); }
     .job.new { border-left-color: var(--src-jobs); background: color-mix(in srgb, var(--src-jobs) 8%, transparent); }
-    .job .what { color: var(--fg-bright); }
-    .job .what b { color: var(--src-jobs); }
+    .job .pos { color: var(--muted); font-size: 12px; min-width: 1.6em; text-align: right; }
+    .job .what { color: var(--fg-bright); min-width: 0; }
+    .job .what b { color: var(--fg-bright); }
+    .job.top .what b { color: var(--src-jobs); }
     .job .when { color: var(--fg-dim); font-size: 12px; text-align: right; }
-    .job .info { color: var(--fg-dim); font-size: 12px; grid-column: 1 / -1; }
+    .job .info { color: var(--fg-dim); font-size: 12px; grid-column: 2 / -1; display: flex; gap: 8px; flex-wrap: wrap; align-items: baseline; }
+    .tier { color: var(--fg-dim); border: 1px solid color-mix(in srgb, var(--fg-dim) 40%, transparent); border-radius: 2px; padding: 0 4px; }
+    .tier.top { color: var(--src-jobs); border-color: color-mix(in srgb, var(--src-jobs) 55%, transparent); }
     .empty { height: auto; padding: 40px 0; }
-    @media (max-width: 600px) { .job { grid-template-columns: 1fr; } .job .when { text-align: left; } }
+    @media (max-width: 800px) {
+      .cols { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+      #best-col { order: -1; }
+      .job { grid-template-columns: auto 1fr; }
+      .job .when { grid-column: 2; text-align: left; }
+    }
   </style>
 </head>
 <body>
   <main>
     <h1>CLEF · JOBS</h1>
     <div class="sub" id="sub">loading…</div>
-    <div id="list"></div>
+    <div class="cols">
+      <section id="latest-col"><h2 class="col">Latest <span>every match, newest first</span></h2><div id="latest"></div></section>
+      <section id="best-col"><h2 class="col">Today's best <span>role fit + company, ★ pushed to phone</span></h2><div id="best"></div></section>
+    </div>
+    <details id="applied-box"><summary>APPLIED <span id="applied-n"></span></summary><div id="applied"></div></details>
+    <div id="toast"></div>
   </main>
   <script type="module">
-    import { ago, esc, etDateTime } from "/static/util.js";
+    import { ago, esc, etDateTime, meter, setApplied } from "/static/util.js";
     const day = (ts) => new Date(ts * 1000).toLocaleDateString("en-US", { timeZone: "America/New_York", weekday: "long", month: "short", day: "numeric" });
 
+    function chip(j) {
+      if (j.tier === "top") return `<span class="tier top">${j.pushed ? "★ " : ""}${esc(j.tag || "top")}</span>`;
+      if (j.tier === "startup") return `<span class="tier">${esc(j.tag)}</span>`;
+      return "";
+    }
+
+    function job(j, pos, highlight) {
+      const isNew = highlight && !j.applied && Date.now() / 1000 - j.found < 3600;
+      return `<div class="item${j.applied ? " done" : ""}"><button class="apply" data-id="${esc(j.id)}"
+        title="${j.applied ? "not applied after all (puts it back)" : "mark applied (removes it)"}"></button><a class="job${isNew ? " new" : ""}${j.tier === "top" ? " top" : ""}" href="${esc(j.url)}" target="_blank" rel="noopener">
+        <span class="pos">${pos ?? ""}</span>
+        <span class="what"><b>${esc(j.company)}</b> · ${esc(j.title)}</span>
+        <span class="when" title="${etDateTime(j.found)}">${ago(j.found)} ago</span>
+        <span class="info">${chip(j)}${[j.term, j.location].filter(Boolean).map(esc).join(" · ")}
+          ${j.fit != null ? `<span title="fit ${j.fit.toFixed(1)} / 4">${meter(j.fit)}</span>` : ""}</span></a></div>`;
+    }
+
+    let data = null, toastTimer = null;
+
     async function refresh() {
-      const { matches, status } = await fetch("/api/jobs?hours=168").then((r) => r.json());
+      data = await fetch("/api/jobs?hours=168").then((r) => r.json());
+      render();
+    }
+
+    function render() {
+      const { matches: all, status } = data;
       const n = (status.boards.hot || 0) + (status.boards.cold || 0);
+      const matches = all.filter((m) => !m.applied);
+      const applied = all.filter((m) => m.applied).sort((a, b) => b.applied - a.applied);
+      const today = matches.filter((m) => m.found >= status.today_start);
+      const appliedToday = applied.filter((m) => m.applied >= status.today_start).length;
       document.getElementById("sub").textContent =
-        `${matches.length} matches in the last 7 days · watching ${n.toLocaleString()} job boards + Simplify · refreshes every 20 s`;
-      if (!matches.length) {
-        document.getElementById("list").innerHTML = `<div class="empty">No fresh matches yet. New ones appear here and on your phone within minutes of posting.</div>`;
-        return;
-      }
-      let html = "", current = "";
+        `${today.length} to apply today · ${appliedToday} applied today · ${matches.length} open in the last 7 days · ` +
+        `watching ${n.toLocaleString()} job boards + Simplify`;
+
+      let latest = "", current = "";
       for (const j of matches) {
         const d = day(j.found);
-        if (d !== current) { html += `<h2>${d}</h2>`; current = d; }
-        const isNew = Date.now() / 1000 - j.found < 3600;
-        html += `<a class="job${isNew ? " new" : ""}" href="${esc(j.url)}" target="_blank" rel="noopener">
-          <span class="what"><b>${esc(j.company)}</b> · ${esc(j.title)}</span>
-          <span class="when" title="${etDateTime(j.found)}">${ago(j.found)} ago</span>
-          <span class="info">${[j.term, j.location, j.via].filter(Boolean).map(esc).join(" · ")}</span></a>`;
+        if (d !== current) { latest += `<h2>${d}</h2>`; current = d; }
+        latest += job(j, null, true);
       }
-      document.getElementById("list").innerHTML = html;
+      document.getElementById("latest").innerHTML = latest ||
+        `<div class="empty">No fresh matches yet. They appear here within minutes of posting.</div>`;
+      document.getElementById("best").innerHTML = today.length
+        ? [...today].sort((a, b) => b.rank - a.rank).map((j, i) => job(j, i + 1, false)).join("")
+        : `<div class="empty">Nothing left to apply to today.</div>`;
+      document.getElementById("applied-n").textContent = `(${applied.length} in the last 7 days)`;
+      document.getElementById("applied").innerHTML = applied.map((j) => job(j, null, false)).join("");
     }
-    refresh();
-    setInterval(refresh, 20_000);
+
+    function toast(j) {
+      const t = document.getElementById("toast");
+      t.innerHTML = `✓ applied: ${esc(j.company)} · ${esc(j.title)} <button>undo</button>`;
+      t.querySelector("button").onclick = () => mark(j, false);
+      t.classList.add("on");
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => t.classList.remove("on"), 8000);
+    }
+
+    function mark(j, applied) {
+      j.applied = applied ? Date.now() / 1000 : null;
+      if (applied) toast(j); else document.getElementById("toast").classList.remove("on");
+      render();
+      setApplied(j.id, applied);
+    }
+
+    document.addEventListener("click", (e) => {
+      const box = e.target.closest("button.apply");
+      if (!box || !data) return;
+      const j = data.matches.find((m) => m.id === box.dataset.id);
+      if (j) mark(j, !j.applied);
+    });
+
+    // Live: the dashboard and this page see each other's ticks (and new matches) within a second.
+    function connect() {
+      const ws = new WebSocket(`ws://${location.host}/ws`);
+      ws.onmessage = (msg) => {
+        const ev = JSON.parse(msg.data);
+        if (ev.t === "jobs_changed" || (ev.t === "decision" && ev.source === "jobs" && ev.show)) refresh();
+      };
+      ws.onopen = refresh;
+      ws.onclose = () => setTimeout(connect, 3000);
+    }
+    connect();
+    setInterval(refresh, 60_000);  // keeps the "ago" times fresh
   </script>
 </body>
 </html>

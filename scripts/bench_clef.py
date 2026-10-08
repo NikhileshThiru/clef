@@ -15,19 +15,19 @@ NEWS_Q = {
                   "criteria": ["not relevant", "slightly", "relevant", "very relevant", "must read"]},
     "breaking": {"type": "noul", "instructions": "Is this breaking news that just happened?"},
 }
-MAIL_Q = {
-    "triage": {"type": "choice", "instructions": "Should the recipient read this email today?",
-               "criteria": {"read_today": "needs attention or action today",
-                            "fyi": "useful but can wait", "ignore": "promo, newsletter, noise"}},
+JOB_Q = {
+    "internship": {"type": "noul", "instructions": "Is this an internship or co-op program for current students?"},
+    "role": {"type": "choice", "instructions": "What kind of role is this?",
+             "criteria": {"swe": "software engineering", "ai_ml": "AI / machine learning", "data": "data science or analytics",
+                          "non_engineering": "not an engineering role"}},
 }
 SAMPLES = [
     ("news", "Nvidia shares jump 6% after earnings beat; data center revenue up 80% year over year", NEWS_Q),
     ("news", "Anthropic releases new Claude model with improved coding benchmarks", NEWS_Q),
     ("news", "YC-backed startup raises $40M Series A to build AI agents for accounting", NEWS_Q),
     ("news", "Local bakery wins award for best croissant in Atlanta", NEWS_Q),
-    ("mail", {"from": "registrar@gatech.edu", "subject": "Action required: Phase II registration closes tonight",
-              "snippet": "Your registration time ticket expires at 11:59pm today..."}, MAIL_Q),
-    ("mail", {"from": "deals@doordash.com", "subject": "50% off your next 3 orders!", "snippet": "Treat yourself..."}, MAIL_Q),
+    ("jobs", {"company": "Stripe", "title": "Software Engineering Intern, Summer 2027", "location": "San Francisco, CA"}, JOB_Q),
+    ("jobs", {"company": "Acme Corp", "title": "Marketing Coordinator", "location": "Remote"}, JOB_Q),
 ]
 
 def vram():
@@ -41,7 +41,7 @@ def main():
     ap.add_argument("-n", type=int, default=20)
     a = ap.parse_args()
     c = httpx.Client(base_url=a.url, timeout=60)
-    c.post("/v1/systemone", json={"state": "warmup", "questions": MAIL_Q}).raise_for_status()
+    c.post("/v1/systemone", json={"state": "warmup", "questions": JOB_Q}).raise_for_status()
     lat, toks = [], []
     for i in range(a.n):
         kind, state, qs = SAMPLES[i % len(SAMPLES)]

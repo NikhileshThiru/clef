@@ -1,11 +1,10 @@
-// Wires the live event socket to the four panels.
+// Wires the live event socket to the three panels.
 import * as news from "./panels/news.js";
 import * as jobs from "./panels/jobs.js";
 import * as core from "./panels/core.js";
-import * as mail from "./panels/mail.js";
 import { etTime } from "./util.js";
 
-const panels = [news, jobs, core, mail];
+const panels = [news, jobs, core];
 
 // In the kiosk (opened by the `clef` command), send link clicks to the desktop's default
 // browser. Viewed from anywhere else (e.g. the Mac over SSH), links open normally.

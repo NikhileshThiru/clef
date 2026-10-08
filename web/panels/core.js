@@ -23,7 +23,6 @@ const C = {
   muted: color("--muted"),
   alert: color("--alert"),
   src: {
-    mail: color("--src-mail"),
     news: color("--src-news"),
     jobs: color("--src-jobs"),
     system: color("--src-system"),
@@ -418,7 +417,6 @@ const queueGauge = gauge(-Math.PI / 2); // right half, sweeping bottom to top
 
 // One moon per source on its own tilted orbit, like an orrery. Streams leave from the moon.
 const MOONS = {
-  mail:   { radius: 4.3, incline: 0.55, node: 0.4, speed: 0.07, phase: 0.0 },
   news:   { radius: 5.0, incline: -0.35, node: 1.9, speed: 0.05, phase: 2.2 },
   jobs:   { radius: 4.65, incline: 0.95, node: -1.1, speed: 0.06, phase: 4.1 },
   system: { radius: 3.95, incline: -0.85, node: 2.8, speed: 0.08, phase: 1.1 },
