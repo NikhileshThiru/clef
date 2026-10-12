@@ -20,6 +20,7 @@ import random
 import re
 import time
 from dataclasses import dataclass, field
+from http.cookiejar import CookieJar, DefaultCookiePolicy
 from urllib.parse import urlsplit
 
 import httpx
@@ -261,7 +262,10 @@ def refresh_boards(listings: list[dict]) -> int:
 
 class Watch:
     def __init__(self):
-        self.client = httpx.AsyncClient(headers={"User-Agent": UA}, timeout=30, follow_redirects=True)
+        # Refuse all cookies. The board APIs don't need them, and a jar holding every board's cookies
+        # (~6k) is copied and scanned on each request: 65% of clefd's CPU after a few days.
+        self.client = httpx.AsyncClient(headers={"User-Agent": UA}, timeout=30, follow_redirects=True,
+                                        cookies=CookieJar(policy=DefaultCookiePolicy(allowed_domains=[])))
         self.sems = {ats: asyncio.Semaphore(n) for ats, n in CONCURRENCY.items()}
         self.simplify_etag: str | None = None
         self.simplify_seen: set[str] = set(db.kv_get("simplify_seen", []))

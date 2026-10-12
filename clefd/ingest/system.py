@@ -252,6 +252,17 @@ CONTEXT = ("Always-on laptop server running a local AI model on its GPU. It shou
 
 GPU_TEMP_NORMAL = 85
 CPU_TEMP_NORMAL = 90
+CPU_LOAD_RUNAWAY = 90  # % of all cores, 5 min average
+
+
+def _sensors_agree(sub: str) -> bool:
+    """Clef flags single turbo spikes as overheating (87°C for a second with a 66°C 5 min average,
+    3% load: nine false alerts over one weekend). A CPU verdict only counts if the 5 minute
+    numbers back it up."""
+    if sub != "cpu":
+        return True
+    return (_agg("cpu_temp").get("avg", 0) > CPU_TEMP_NORMAL
+            or _agg("cpu_util").get("avg", 0) >= CPU_LOAD_RUNAWAY)
 
 
 def state(item: dict) -> dict:
@@ -263,7 +274,7 @@ def interpret(item: dict, answers: dict) -> dict:
     sub = answers["subsystem"]["choice"]
     sev = answers["severity"]["score"]
     sub_conf = answers["subsystem"]["confidence"]
-    flagged = sub != "none" and sub_conf >= 0.6 and (p_wrong >= 0.5 or sev >= 1.2)
+    flagged = sub != "none" and sub_conf >= 0.6 and (p_wrong >= 0.5 or sev >= 1.2) and _sensors_agree(sub)
     health.last_check = {"ts": time.time(), "p_wrong": p_wrong, "subsystem": sub, "severity": sev}
     _update_alert(HISTORY[-1] if HISTORY else sample(), ("clef", sub) if flagged else None)
     label = sub if flagged else "nominal"
